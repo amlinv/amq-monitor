@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ Copyright 2015 AML Innovation & Consulting LLC
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~    http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+  -->
+
+<beans xmlns="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:jaxrs="http://cxf.apache.org/jaxrs"
+  xmlns:context="http://www.springframework.org/schema/context"
+  xsi:schemaLocation="
+http://www.springframework.org/schema/beans 
+http://www.springframework.org/schema/beans/spring-beans-3.0.xsd
+http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-3.0.xsd
+http://cxf.apache.org/jaxrs
+http://cxf.apache.org/schemas/jaxrs.xsd">
+
+  <import resource="classpath:META-INF/cxf/cxf.xml" />
+
+  <context:property-placeholder/>
+  <context:annotation-config/>
+  <bean class="org.springframework.web.context.support.ServletContextPropertyPlaceholderConfigurer"/>
+  <bean class="org.springframework.beans.factory.config.PreferencesPlaceholderConfigurer"/>
+
+    <bean id="appMainThreadPoolExecutor" class="org.springframework.scheduling.concurrent.ThreadPoolExecutorFactoryBean">
+        <property name="corePoolSize" value="5" />
+        <property name="maxPoolSize"  value="100" />
+        <property name="keepAliveSeconds" value="60" />
+        <property name="threadNamePrefix" value="amq-monitor-executor" />
+    </bean>
+    
+    <bean id="brokerRegistry" class="com.amlinv.activemq.topo.registry.BrokerRegistry">
+        <property name="listeners">
+            <list value-type="com.amlinv.registry.util.RegistryListener">
+                <value>#{monitorWebController.brokerRegistryListener}</value>
+            </list>
+        </property>
+    </bean>
+
+    <bean id="queueRegistry" class="com.amlinv.activemq.topo.registry.DestinationRegistry">
+        <property name="listeners">
+            <list value-type="com.amlinv.registry.util.RegistryListener">
+                <value>#{websocketBrokerStatsFeed.queueRegistryListener}</value>
+                <value>#{queueStatisticsRegistry.queueRegistryListener}</value>
+            </list>
+        </property>
+    </bean>
+
+    <!--<bean id="queueRegistry" class="com.amlinv.activemq.registry.impl.DefaultDestinationRegistry" />-->
+    <!--<bean id="topicRegistry" class="com.amlinv.activemq.registry.impl.DefaultDestinationRegistry" />-->
+
+    <!-- PERSISTENCE -->
+    <bean id="monitorPersistence" class="com.amlinv.activemq.persistence.impl.JsonFileApplicationPersistenceAdapter"
+          init-method="loadOnInit" destroy-method="saveOnDestory">
+        <constructor-arg value="${data.dir:.}/${monitor.persistence.file:monitor.json}" />
+        <property name="brokerRegistry" ref="brokerRegistry" />
+        <property name="queueRegistry" ref="queueRegistry" />
+    </bean>
+
+
+    <bean id="monitorWebController" class="com.amlinv.activemq.monitor.web.MonitorWebController"
+          init-method="init" destroy-method="shutdown">
+        <property name="websocketBrokerStatsFeed" ref="websocketBrokerStatsFeed" />
+        <property name="brokerRegistry" ref="brokerRegistry" />
+        <property name="queueRegistry" ref="queueRegistry" />
+    </bean>
+
+    <!--                    -->
+    <!-- WEB SERVICES BEANS -->
+    <!--                    -->
+    <jaxrs:server id="services" address="/">
+        <jaxrs:serviceBeans>
+
+            <ref bean="monitorWebController" />
+
+        </jaxrs:serviceBeans>
+        <jaxrs:providers>
+            <bean class="org.codehaus.jackson.jaxrs.JacksonJsonProvider"/>
+        </jaxrs:providers>
+    </jaxrs:server>
+
+    <!-- STATISTICS REGISTRY -->
+    <bean id="queueStatisticsRegistry" class="com.amlinv.activemq.stats.QueueStatisticsRegistry" />
+
+    <!-- MONITORING WEBSOCKET -->
+    <bean id="monitorWebsocketRegistry" class="com.amlinv.activemq.monitor.web.MonitorWebsocketRegistry" />
+    <bean id="websocketBrokerStatsFeed" class="com.amlinv.activemq.monitor.web.MonitorWebsocketBrokerStatsFeed">
+        <property name="websocketRegistry" ref="monitorWebsocketRegistry" />
+        <property name="queueStatisticsRegistry" ref="queueStatisticsRegistry" />
+        <!--<property name="metricRegistry" ref="metricRegistry" />-->
+    </bean>
+
+    <!-- PROCESS SCHEDULING -->
+    <bean id="scheduler" class="com.amlinv.javasched.impl.RoundRobinScheduler" init-method="start" />
+
+    <!-- CLASS STATIC FIELD INJECTORS -->
+    <bean class="com.amlinv.activemq.monitor.web.MonitorWebsocketStaticInjector">
+        <property name="registry" ref="monitorWebsocketRegistry" />
+        <property name="scheduler" ref="scheduler" />
+    </bean>
+</beans>
