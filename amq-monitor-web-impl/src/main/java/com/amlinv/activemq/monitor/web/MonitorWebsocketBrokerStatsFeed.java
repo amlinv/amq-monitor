@@ -69,6 +69,14 @@ public class MonitorWebsocketBrokerStatsFeed implements ActiveMQBrokerPollerList
         this.queueStatisticsRegistry = queueStatisticsRegistry;
     }
 
+    public Logger getLog() {
+        return log;
+    }
+
+    public void setLog(Logger log) {
+        this.log = log;
+    }
+
     public void init () {
 
     }
@@ -98,7 +106,7 @@ public class MonitorWebsocketBrokerStatsFeed implements ActiveMQBrokerPollerList
         for ( final MonitorWebsocket oneTarget : this.websocketRegistry.values() ) {
             try {
                 oneTarget.fireMonitorEventNB(action, content);
-            } catch (Throwable exc) {
+            } catch (Exception exc) {
                 log.info("error attempting to send event to listener", exc);
             }
         }

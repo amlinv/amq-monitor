@@ -136,19 +136,19 @@ public class ActiveMQQueueJmxStats implements MBeanLocationParameterSource {
     /**
      * Return a new queue stats structure with the total of the stats from this structure and the one given.  Returning
      * a new structure keeps all three structures unchanged, in the manner of immutability, to make it easier to have
-     * safe usage under concurrency.  The sum of percentages is not used, and instead the maximum percentage is
-     * returned.
+     * safe usage under concurrency.  Note that non-count values are copied out from this instance; those values from
+     * the given other stats are ignored.
      *
      * @param other
      * @param resultBrokerName
      * @return
      */
-    public ActiveMQQueueJmxStats add (ActiveMQQueueJmxStats other, String resultBrokerName) {
+    public ActiveMQQueueJmxStats addCounts(ActiveMQQueueJmxStats other, String resultBrokerName) {
         ActiveMQQueueJmxStats result = new ActiveMQQueueJmxStats(resultBrokerName, this.queueName);
-        result.setCursorPercentUsage(Math.max(this.getCursorPercentUsage(), other.getCursorPercentUsage()));
+        result.setCursorPercentUsage(this.getCursorPercentUsage());
         result.setDequeueCount(this.getDequeueCount() + other.getDequeueCount());
         result.setEnqueueCount(this.getEnqueueCount() + other.getEnqueueCount());
-        result.setMemoryPercentUsage(Math.max(this.getMemoryPercentUsage(), other.getMemoryPercentUsage()));
+        result.setMemoryPercentUsage(this.getMemoryPercentUsage());
         result.setNumConsumers(this.getNumConsumers() + other.getNumConsumers());
         result.setNumProducers(this.getNumProducers() + other.getNumProducers());
         result.setQueueSize(this.getQueueSize() + other.getQueueSize());
@@ -186,15 +186,16 @@ public class ActiveMQQueueJmxStats implements MBeanLocationParameterSource {
     }
 
     /**
-     * Subtract the given stats from this one and return the difference.
+     * Subtract the given stats from this one and return the difference.  Note that non-count values are copied out
+     * from this instance; those values from the given other stats are ignored.
      */
-    public ActiveMQQueueJmxStats subtract (ActiveMQQueueJmxStats other) {
+    public ActiveMQQueueJmxStats subtractCounts(ActiveMQQueueJmxStats other) {
         ActiveMQQueueJmxStats result = new ActiveMQQueueJmxStats(this.brokerName, this.queueName);
 
+        result.setCursorPercentUsage(this.getCursorPercentUsage());
         result.setDequeueCount(this.getDequeueCount() - other.getDequeueCount());
         result.setEnqueueCount(this.getEnqueueCount() - other.getEnqueueCount());
-        result.setCursorPercentUsage(this.getCursorPercentUsage() - other.getCursorPercentUsage());
-        result.setMemoryPercentUsage(this.getMemoryPercentUsage() - other.getMemoryPercentUsage());
+        result.setMemoryPercentUsage(this.getMemoryPercentUsage());
         result.setNumConsumers(this.getNumConsumers() - other.getNumConsumers());
         result.setNumProducers(this.getNumProducers() - other.getNumProducers());
         result.setQueueSize(this.getQueueSize() - other.getQueueSize());

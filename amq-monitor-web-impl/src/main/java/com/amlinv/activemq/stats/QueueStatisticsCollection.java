@@ -45,6 +45,8 @@ public class QueueStatisticsCollection {
     private double aggregateEnqueueRateOneHour = 0.0;
     private double aggregateEnqueueRateOneDay = 0.0;
 
+    private StatsClock statsClock = new SystemStatsClock();
+
     public QueueStatisticsCollection(String queueName) {
         this.queueName = queueName;
     }
@@ -59,6 +61,14 @@ public class QueueStatisticsCollection {
 
     public String getQueueName() {
         return queueName;
+    }
+
+    public StatsClock getStatsClock() {
+        return statsClock;
+    }
+
+    public void setStatsClock(StatsClock statsClock) {
+        this.statsClock = statsClock;
     }
 
     public void onUpdatedStats (ActiveMQQueueJmxStats updatedStats) {
@@ -77,19 +87,22 @@ public class QueueStatisticsCollection {
                 this.statsByBroker.put(brokerName, brokerQueueStats);
 
                 if ( this.aggregatedStats != null ) {
-                    this.aggregatedStats = this.aggregatedStats.add(updatedStats, "totals");
+                    this.aggregatedStats = this.aggregatedStats.addCounts(updatedStats, "totals");
+                    this.updateNonCountStats(updatedStats);
                 } else {
                     this.aggregatedStats = updatedStats.dup("totals");
                 }
             } else {
                 //
-                // Updates to existing stats.  Add in the effect of the new stats: subtract the old stats from the
-                //  new and add those back into the aggregated results; add the updated enqueue and dequeue counts
-                //  to the rate collector for the queue; and store the results.
+                // Updates to existing stats.  Add in the effect of the new stats: subtractCounts the old stats from the
+                //  new and addCounts those back into the aggregated results; addCounts the updated enqueue and dequeue
+                //  counts to the rate collector for the queue; and store the results.
                 //
 
-                ActiveMQQueueJmxStats diffs = updatedStats.subtract(brokerQueueStats.statsFromBroker);
-                this.aggregatedStats = this.aggregatedStats.add(diffs, "totals");
+                ActiveMQQueueJmxStats diffs = updatedStats.subtractCounts(brokerQueueStats.statsFromBroker);
+                this.aggregatedStats = this.aggregatedStats.addCounts(diffs, "totals");
+
+                this.updateNonCountStats(updatedStats);
 
                 brokerQueueStats.statsFromBroker = updatedStats.dup(brokerName);
                 this.updateRates(brokerQueueStats, diffs.getDequeueCount(), diffs.getEnqueueCount());
@@ -97,7 +110,7 @@ public class QueueStatisticsCollection {
         }
     }
 
-    protected ActiveMQQueueStats getQueueTotalStats () {
+    public ActiveMQQueueStats getQueueTotalStats () {
         ActiveMQQueueStats result = new ActiveMQQueueStats("totals", this.queueName);
 
         synchronized ( this.statsByBroker ) {
@@ -117,6 +130,16 @@ public class QueueStatisticsCollection {
         return result;
     }
 
+    protected void updateNonCountStats(ActiveMQQueueJmxStats updatedStats) {
+        if ( updatedStats.getCursorPercentUsage() > this.aggregatedStats.getCursorPercentUsage() ) {
+            this.aggregatedStats.setCursorPercentUsage(updatedStats.getCursorPercentUsage());
+        }
+
+        if ( updatedStats.getMemoryPercentUsage() > this.aggregatedStats.getMemoryPercentUsage() ) {
+            this.aggregatedStats.setMemoryPercentUsage(updatedStats.getMemoryPercentUsage());
+        }
+    }
+
     /**
      * Update message rates given the change in dequeue and enqueue counts for one broker queue.
      *
@@ -133,7 +156,28 @@ public class QueueStatisticsCollection {
         double oldEnqueueRateOneHour = rateMeasurements.messageRates.getOneHourAverageEnqueueRate();
         double oldEnqueueRateOneDay = rateMeasurements.messageRates.getOneDayAverageEnqueueRate();
 
-        rateMeasurements.messageRates.onSample(dequeueCountDelta, enqueueCountDelta);
+        //
+        // Protect against negative changes in Enqueue and Dequeue counts - these metrics are designed to only ever
+        //  increase, but can reset in cases such as restarting a broker and manually resetting the statistics through
+        //  JMX controls.
+        //
+        if ( dequeueCountDelta < 0 ) {
+            this.log.debug("detected negative change in dequeue count; ignoring: queue={}; delta={}", this.queueName,
+                    dequeueCountDelta);
+            dequeueCountDelta = 0;
+        }
+
+        if ( enqueueCountDelta < 0 ) {
+            this.log.debug("detected negative change in enqueue count; ignoring: queue={}; delta={}", this.queueName,
+                    enqueueCountDelta);
+            enqueueCountDelta = 0;
+        }
+
+
+        //
+        // Update the rates and add in the changes.
+        //
+        rateMeasurements.messageRates.onTimestampSample(statsClock.getStatsStopWatchTime(), dequeueCountDelta, enqueueCountDelta);
 
         aggregateDequeueRateOneMinute -= oldDequeueRateOneMinute;
         aggregateDequeueRateOneMinute += rateMeasurements.messageRates.getOneMinuteAverageDequeueRate();

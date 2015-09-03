@@ -16,6 +16,10 @@
 
 package com.amlinv.activemq.monitor.activemq;
 
+import com.amlinv.activemq.monitor.activemq.impl.DefaultBrokerStatsJmxAttributePollerFactory;
+import com.amlinv.activemq.stats.StatsClock;
+import com.amlinv.activemq.stats.SystemStatsClock;
+import com.amlinv.activemq.stats.logging.BrokerStatsLogger;
 import com.amlinv.activemq.topo.registry.DestinationRegistry;
 import com.amlinv.activemq.topo.registry.DestinationRegistryListener;
 import com.amlinv.activemq.topo.registry.model.DestinationState;
@@ -23,7 +27,6 @@ import com.amlinv.jmxutil.connection.MBeanAccessConnectionFactory;
 import com.amlinv.activemq.monitor.model.ActiveMQBrokerStats;
 import com.amlinv.activemq.monitor.model.ActiveMQQueueJmxStats;
 import com.amlinv.activemq.monitor.model.BrokerStatsPackage;
-import com.amlinv.jmxutil.polling.JmxAttributePoller;
 import com.amlinv.logging.util.RepeatLogMessageSuppressor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,15 +35,14 @@ import java.io.IOException;
 import java.util.*;
 
 /**
+ *
  * TBD: use immutable copies of the data
  * Created by art on 4/2/15.
  */
 public class ActiveMQBrokerPoller {
-    private static final Logger LOG = LoggerFactory.getLogger(ActiveMQBrokerPoller.class);
+    private static final Logger DEFAULT_LOGGER = LoggerFactory.getLogger(ActiveMQBrokerPoller.class);
 
     public static final long DEFAULT_MIN_TIME_BETWEEN_STATS_LOG = 60000L;
-
-    private Logger STATS_LOG = LoggerFactory.getLogger("com.amlinv.activemq.monitor.activemq.statsLog");
 
     private final String brokerName;
 
@@ -50,7 +52,12 @@ public class ActiveMQBrokerPoller {
     private DestinationRegistry topicRegistry;
 
     private MyQueueRegistryListener queueRegistryListener = new MyQueueRegistryListener();
+    private BrokerStatsLogger brokerStatsLogger = new BrokerStatsLogger();
 
+    private StatsClock statsClock = new SystemStatsClock();
+    private BrokerStatsJmxAttributePollerFactory jmxPollerFactory = new DefaultBrokerStatsJmxAttributePollerFactory();
+
+    private Logger log = DEFAULT_LOGGER;
 
     private long pollingInterval = 3000;
     private long minTimeBetweenStatsLog = DEFAULT_MIN_TIME_BETWEEN_STATS_LOG;
@@ -59,14 +66,23 @@ public class ActiveMQBrokerPoller {
 
     private final MBeanAccessConnectionFactory mBeanAccessConnectionFactory;
     private final ActiveMQBrokerPollerListener listener;
-    private MyJmxAttributePoller poller;
+    private BrokerStatsJmxAttributePoller poller;
 
     private RepeatLogMessageSuppressor logThrottlePollFailure = new RepeatLogMessageSuppressor();
+
+    private ConcurrencyTestHooks concurrencyTestHooks = new ConcurrencyTestHooks();
 
     private boolean pollActiveInd = false;
     private boolean started = false;
     private boolean stopped = false;
 
+    /**
+     * Create a new poller of statistics from an ActiveMQ broker.
+     *
+     * @param brokerName
+     * @param mBeanAccessConnectionFactory
+     * @param listener
+     */
     public ActiveMQBrokerPoller(String brokerName, MBeanAccessConnectionFactory mBeanAccessConnectionFactory,
                                 ActiveMQBrokerPollerListener listener) {
 
@@ -91,60 +107,48 @@ public class ActiveMQBrokerPoller {
         this.topicRegistry = topicRegistry;
     }
 
-    protected void addMonitoredQueue (String name) {
-        MyJmxAttributePoller newPoller = null;
-
-        synchronized ( this ) {
-            if ( this.started ) {
-                newPoller = this.prepareNewPoller();
-            }
-        }
-
-        if ( newPoller != null ) {
-            activateNewPoller(newPoller);
-        }
+    public BrokerStatsLogger getBrokerStatsLogger() {
+        return brokerStatsLogger;
     }
 
-    protected void removeMonitoredQueue (String name) {
-        MyJmxAttributePoller newPoller = null;
-
-        synchronized ( this ) {
-            if ( this.started ) {
-                newPoller = this.prepareNewPoller();
-            }
-        }
-
-        if ( newPoller != null ) {
-            activateNewPoller(newPoller);
-        }
+    public void setBrokerStatsLogger(BrokerStatsLogger brokerStatsLogger) {
+        this.brokerStatsLogger = brokerStatsLogger;
     }
 
-    protected void addMonitoredTopic (String name) {
-        MyJmxAttributePoller newPoller = null;
-
-        synchronized ( this ) {
-            if ( this.started ) {
-                newPoller = this.prepareNewPoller();
-            }
-        }
-
-        if ( newPoller != null ) {
-            activateNewPoller(newPoller);
-        }
+    public Timer getScheduler() {
+        return scheduler;
     }
 
-    protected void removeMonitoredTopic (String name) {
-        MyJmxAttributePoller newPoller = null;
+    public void setScheduler(Timer scheduler) {
+        this.scheduler = scheduler;
+    }
 
-        synchronized ( this ) {
-            if ( this.started ) {
-                newPoller = this.prepareNewPoller();
-            }
-        }
+    public StatsClock getStatsClock() {
+        return statsClock;
+    }
 
-        if ( newPoller != null ) {
-            activateNewPoller(newPoller);
-        }
+    public void setStatsClock(StatsClock statsClock) {
+        this.statsClock = statsClock;
+    }
+
+    public BrokerStatsJmxAttributePollerFactory getJmxPollerFactory() {
+        return jmxPollerFactory;
+    }
+
+    public void setJmxPollerFactory(BrokerStatsJmxAttributePollerFactory jmxPollerFactory) {
+        this.jmxPollerFactory = jmxPollerFactory;
+    }
+
+    public Logger getLog() {
+        return log;
+    }
+
+    public void setLog(Logger log) {
+        this.log = log;
+    }
+
+    public void setConcurrencyTestHooks(ConcurrencyTestHooks concurrencyTestHooks) {
+        this.concurrencyTestHooks = concurrencyTestHooks;
     }
 
     public void start () {
@@ -179,21 +183,43 @@ public class ActiveMQBrokerPoller {
         synchronized ( this ) {
             // Wait until stop is called.
             while ( ! stopped ) {
+                this.concurrencyTestHooks.onWaitForShutdown();
                 this.wait();
             }
 
             // Then wait for any active poll to actually complete.
             while ( pollActiveInd ) {
+                this.concurrencyTestHooks.onWaitForPollInactive();
                 this.wait();
             }
         }
     }
 
-    protected MyJmxAttributePoller prepareNewPoller() {
+    protected void addMonitoredQueue (String name) {
+        BrokerStatsJmxAttributePoller newPoller;
+
+        synchronized ( this ) {
+            newPoller = this.prepareNewPoller();
+        }
+
+        this.activateNewPoller(newPoller);
+    }
+
+    protected void removeMonitoredQueue (String name) {
+        BrokerStatsJmxAttributePoller newPoller;
+
+        synchronized ( this ) {
+            newPoller = this.prepareNewPoller();
+        }
+
+        this.activateNewPoller(newPoller);
+    }
+
+    protected BrokerStatsJmxAttributePoller prepareNewPoller() {
         BrokerStatsPackage resultStorage = this.preparePolledResultStorage();
         List<Object> polled = this.preparePolledObjects(resultStorage);
 
-        MyJmxAttributePoller newPoller = new MyJmxAttributePoller(polled, resultStorage);
+        BrokerStatsJmxAttributePoller newPoller = this.jmxPollerFactory.createPoller(polled, resultStorage);
         newPoller.setmBeanAccessConnectionFactory(this.mBeanAccessConnectionFactory);
 
         return  newPoller;
@@ -209,7 +235,7 @@ public class ActiveMQBrokerPoller {
         }
 
         BrokerStatsPackage result = new BrokerStatsPackage(new ActiveMQBrokerStats(this.brokerName), queueStatsMap);
-        // TBD: add Topics to monitor
+        // TBD: addCounts Topics to monitor
 
         return  result;
     }
@@ -223,28 +249,37 @@ public class ActiveMQBrokerPoller {
             result.add(oneQueueStats);
         }
 
-        // TBD: add Topics to monitor
+        // TBD: addCounts Topics to monitor
 
         return  result;
     }
 
-    protected void activateNewPoller (MyJmxAttributePoller newPoller) {
-        MyJmxAttributePoller oldPoller = this.poller;
-        this.poller = newPoller;
-        if ( oldPoller != null ) {
-            oldPoller.shutdown();
+    protected void activateNewPoller (BrokerStatsJmxAttributePoller newPoller) {
+        BrokerStatsJmxAttributePoller oldPoller;
+        synchronized (this) {
+            oldPoller = this.poller;
+            this.poller = newPoller;
         }
+
+        oldPoller.shutdown();
     }
 
     protected void pollOnce () {
-        MyJmxAttributePoller pollerSnapshot = this.poller;
+        this.concurrencyTestHooks.onStartPollIndividually();
+
+        BrokerStatsJmxAttributePoller pollerSnapshot = this.poller;
 
         try {
             pollActiveInd = true;
+
+            this.concurrencyTestHooks.beforePollProcessorStart();
+
             pollerSnapshot.poll();
         } catch ( IOException ioExc ) {
-            this.logThrottlePollFailure.warn(LOG, "poll of broker {} failed", this.brokerName, ioExc);
+            this.logThrottlePollFailure.warn(log, "poll of broker {} failed", this.brokerName, ioExc);
         } finally {
+            this.concurrencyTestHooks.afterPollProcessorFinish();
+
             synchronized ( this ) {
                 pollActiveInd = false;
                 this.notifyAll();
@@ -254,7 +289,7 @@ public class ActiveMQBrokerPoller {
         this.onPollComplete(pollerSnapshot);
     }
 
-    protected void onPollComplete (MyJmxAttributePoller poller) {
+    protected void onPollComplete (BrokerStatsJmxAttributePoller poller) {
         BrokerStatsPackage resultStorage = poller.getResultStorage();
 
         this.listener.onBrokerPollComplete(resultStorage);
@@ -263,14 +298,14 @@ public class ActiveMQBrokerPoller {
     }
 
     protected void logStatsWithRateLimit (BrokerStatsPackage resultStorage) {
-        long nowMs = System.nanoTime() / 1000000L;
+        long nowMs = this.statsClock.getStatsStopWatchTime();
 
         synchronized ( this.statsLogSync ) {
             //
             // If enough time has not passed, skip the update.
             //
             if ( ( nowMs - this.lastStatsLogUpdateTimestamp ) < this.minTimeBetweenStatsLog ) {
-                LOG.debug("skipping stats log; now={}; last-update={}; limit={}", nowMs,
+                log.debug("skipping stats log; now={}; last-update={}; limit={}", nowMs,
                         this.lastStatsLogUpdateTimestamp, this.minTimeBetweenStatsLog);
                 return;
             }
@@ -281,91 +316,7 @@ public class ActiveMQBrokerPoller {
         //
         // Write the upate now.
         //
-        this.logStats(resultStorage);
-    }
-
-    protected void logStats (BrokerStatsPackage resultStorage) {
-        ActiveMQBrokerStats brokerStats = resultStorage.getBrokerStats();
-        if ( brokerStats != null ) {
-            String line = formatBrokerStatsLogLine(brokerStats);
-
-            this.STATS_LOG.info("{}", line.toString());
-        }
-
-        if ( resultStorage.getQueueStats() != null ) {
-            for (Map.Entry<String, ActiveMQQueueJmxStats> oneEntry : resultStorage.getQueueStats().entrySet()) {
-                String line = formatQueueStatsLogLine(oneEntry.getKey(), oneEntry.getValue());
-
-                this.STATS_LOG.info("{}", line.toString());
-            }
-        }
-    }
-
-    protected String formatBrokerStatsLogLine(ActiveMQBrokerStats brokerStats) {
-        StringBuilder buffer = new StringBuilder();
-
-        buffer.append("|broker-stats|");
-        buffer.append(encodeLogStatString(brokerStats.getBrokerName()));
-        buffer.append("|");
-        buffer.append(brokerStats.getAverageMessageSize());
-        buffer.append("|");
-        buffer.append(encodeLogStatString(brokerStats.getUptime()));
-        buffer.append("|");
-        buffer.append(brokerStats.getUptimeMillis());
-        buffer.append("|");
-        buffer.append(brokerStats.getMemoryLimit());
-        buffer.append("|");
-        buffer.append(brokerStats.getMemoryPercentUsage());
-        buffer.append("|");
-        buffer.append(brokerStats.getCurrentConnectionsCount());
-        buffer.append("|");
-        buffer.append(brokerStats.getTotalConsumerCount());
-        buffer.append("|");
-        buffer.append(brokerStats.getTotalMessageCount());
-        buffer.append("|");
-        buffer.append(brokerStats.getTotalEnqueueCount());
-        buffer.append("|");
-        buffer.append(brokerStats.getTotalDequeueCount());
-        buffer.append("|");
-        buffer.append(brokerStats.getStorePercentUsage());
-        buffer.append("|");
-
-        return buffer.toString();
-    }
-
-    private String formatQueueStatsLogLine(String queueName, ActiveMQQueueJmxStats stats) {
-        StringBuilder buffer = new StringBuilder();
-
-        buffer.append("|queue-stats|");
-        buffer.append(encodeLogStatString(queueName));
-        buffer.append("|");
-        buffer.append(encodeLogStatString(stats.getBrokerName()));
-        buffer.append("|");
-        buffer.append(stats.getQueueSize());
-        buffer.append("|");
-        buffer.append(stats.getEnqueueCount());
-        buffer.append("|");
-        buffer.append(stats.getDequeueCount());
-        buffer.append("|");
-        buffer.append(stats.getNumConsumers());
-        buffer.append("|");
-        buffer.append(stats.getNumProducers());
-        buffer.append("|");
-        buffer.append(stats.getCursorPercentUsage());
-        buffer.append("|");
-        buffer.append(stats.getMemoryPercentUsage());
-        buffer.append("|");
-        buffer.append(stats.getInflightCount());
-
-        return buffer.toString();
-    }
-
-    protected String encodeLogStatString (String orig) {
-        if ( orig == null ) {
-            return "";
-        }
-
-        return  orig.replaceAll("[|]", "%v%");
+        this.brokerStatsLogger.logStats(resultStorage);
     }
 
     protected class PollerTask extends TimerTask {
@@ -375,23 +326,9 @@ public class ActiveMQBrokerPoller {
         }
     }
 
-    protected static class MyJmxAttributePoller extends JmxAttributePoller {
-        private BrokerStatsPackage resultStorage;
-
-        public MyJmxAttributePoller(List<Object> polledObjects, BrokerStatsPackage resultStorage) {
-            super(polledObjects);
-
-            this.resultStorage = resultStorage;
-        }
-
-        public BrokerStatsPackage getResultStorage() {
-            return resultStorage;
-        }
-    }
-
 
     /**
-     *
+     * Listener to the Queue registry to update the poller as destinations are added or removed.
      */
     protected class MyQueueRegistryListener implements DestinationRegistryListener {
         @Override
@@ -406,6 +343,26 @@ public class ActiveMQBrokerPoller {
 
         @Override
         public void onReplaceEntry(String replaceKey, DestinationState oldValue, DestinationState newValue) {
+        }
+    }
+
+    /**
+     * Hooks for internal testing purposes only.
+     */
+    protected static class ConcurrencyTestHooks {
+        public void onWaitForShutdown() {
+        }
+
+        public void onWaitForPollInactive() {
+        }
+
+        public void onStartPollIndividually() {
+        }
+
+        public void beforePollProcessorStart() {
+        }
+
+        public void afterPollProcessorFinish() {
         }
     }
 }

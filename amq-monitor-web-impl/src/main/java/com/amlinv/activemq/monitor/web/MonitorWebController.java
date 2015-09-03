@@ -17,9 +17,11 @@
 package com.amlinv.activemq.monitor.web;
 
 import com.amlinv.activemq.monitor.activemq.ActiveMQBrokerPoller;
+import com.amlinv.activemq.monitor.activemq.ActiveMQBrokerPollerFactory;
+import com.amlinv.activemq.monitor.activemq.impl.DefaultActiveMQBrokerPollerFactory;
 import com.amlinv.activemq.topo.discovery.MBeanDestinationDiscoverer;
 import com.amlinv.activemq.topo.discovery.MBeanDestinationDiscovererScheduler;
-import com.amlinv.activemq.topo.jmxutil.polling.JmxActiveMQUtil;
+import com.amlinv.activemq.topo.jmxutil.polling.JmxActiveMQUtil2;
 import com.amlinv.activemq.topo.registry.BrokerRegistry;
 import com.amlinv.activemq.topo.registry.BrokerRegistryListener;
 import com.amlinv.activemq.topo.registry.DestinationRegistry;
@@ -44,7 +46,8 @@ import javax.ws.rs.core.Response;
  */
 @Path("/monitor")
 public class MonitorWebController {
-    private static final Logger LOG = LoggerFactory.getLogger(MonitorWebController.class);
+    private static final Logger DEFAULT_LOGGER = LoggerFactory.getLogger(MonitorWebController.class);
+    private Logger log = DEFAULT_LOGGER;
 
     private final MyBrokerRegistryListener myBrokerRegistryListener;
 
@@ -55,10 +58,13 @@ public class MonitorWebController {
     private Map<String, ActiveMQBrokerPoller> brokerPollerMap;
     private Map<String, MBeanDestinationDiscovererScheduler> queueDiscoverers;
     private AtomicBoolean started = new AtomicBoolean(false);
+    private ActiveMQBrokerPollerFactory brokerPollerFactory = new DefaultActiveMQBrokerPollerFactory();
+    private JmxActiveMQUtil2 jmxActiveMQUtil = new JmxActiveMQUtil2();
 
     private boolean autoStart = true;
     private boolean autoDiscoverQueues = true;
 
+    // TODO: convert to use JavaScheduler
     private ScheduledExecutorService discovererExecutorService =
             new ScheduledThreadPoolExecutor(5, new DaemonThreadFactory("discoverer-polling-thread-"));
 
@@ -69,6 +75,14 @@ public class MonitorWebController {
 
         this.brokerPollerMap = new TreeMap<>();
         this.queueDiscoverers = new HashMap<>();
+    }
+
+    public Logger getLog() {
+        return log;
+    }
+
+    public void setLog(Logger log) {
+        this.log = log;
     }
 
     public BrokerRegistry getBrokerRegistry() {
@@ -115,10 +129,26 @@ public class MonitorWebController {
         this.autoDiscoverQueues = autoDiscoverQueues;
     }
 
+    public ActiveMQBrokerPollerFactory getBrokerPollerFactory() {
+        return brokerPollerFactory;
+    }
+
+    public void setBrokerPollerFactory(ActiveMQBrokerPollerFactory brokerPollerFactory) {
+        this.brokerPollerFactory = brokerPollerFactory;
+    }
+
+    public JmxActiveMQUtil2 getJmxActiveMQUtil() {
+        return jmxActiveMQUtil;
+    }
+
+    public void setJmxActiveMQUtil(JmxActiveMQUtil2 jmxActiveMQUtil) {
+        this.jmxActiveMQUtil = jmxActiveMQUtil;
+    }
+
     public void init () {
-        LOG.info("Initializing monitor web controller");
+        log.info("Initializing monitor web controller");
         if ( this.autoStart ) {
-            LOG.info("Starting monitoring now");
+            log.info("Starting monitoring now");
             this.startMonitoring();
         }
     }
@@ -143,7 +173,7 @@ public class MonitorWebController {
     @GET
     @Path("/brokers")
     public List<BrokerInfo> listMonitoredBrokers() {
-        LOG.debug("listMonitoredBrokers");
+        log.debug("listMonitoredBrokers");
 
         return new LinkedList<BrokerInfo>(this.brokerRegistry.values());
     }
@@ -167,28 +197,6 @@ public class MonitorWebController {
         result = performBrokerRemoval(address);
 
         return  result;
-    }
-
-    protected String performBrokerRemoval(String address) {
-        String result;
-        ActiveMQBrokerPoller removedPoller;
-
-        // TBD222: stop using the address as the key since more than one broker may live at an address
-        this.brokerRegistry.remove(address);
-
-        // TBD: both brokerPollerMap and locations should be performed in a single atomic update, not separate atomic updates
-        // TBD: one address can have more than one broker
-        synchronized ( this.brokerPollerMap ) {
-            removedPoller = this.brokerPollerMap.remove(address);
-        }
-
-        if ( removedPoller != null ) {
-            result = "removed";
-            removedPoller.stop();
-        } else {
-            result = "not found";
-        }
-        return result;
     }
 
     @PUT
@@ -255,7 +263,29 @@ public class MonitorWebController {
     @Path("/queryBrokers")
     @Produces({ "application/json", "application/xml" })
     public String[] queryBrokerNames(@QueryParam("address") String address) throws Exception {
-        return  JmxActiveMQUtil.queryBrokerNames(address);
+        return  this.jmxActiveMQUtil.queryBrokerNames(address);
+    }
+
+    protected String performBrokerRemoval(String address) {
+        String result;
+        ActiveMQBrokerPoller removedPoller;
+
+        // TBD222: stop using the address as the key since more than one broker may live at an address
+        this.brokerRegistry.remove(address);
+
+        // TBD: both brokerPollerMap and locations should be performed in a single atomic update, not separate atomic updates
+        // TBD: one address can have more than one broker
+        synchronized ( this.brokerPollerMap ) {
+            removedPoller = this.brokerPollerMap.remove(address);
+        }
+
+        if ( removedPoller != null ) {
+            result = "removed";
+            removedPoller.stop();
+        } else {
+            result = "not found";
+        }
+        return result;
     }
 
     /**
@@ -293,10 +323,10 @@ public class MonitorWebController {
      */
     protected String prepareBrokerPoller(String brokerName, String address) throws Exception {
         MBeanAccessConnectionFactory mBeanAccessConnectionFactory =
-                JmxActiveMQUtil.getLocationConnectionFactory(address);
+                this.jmxActiveMQUtil.getLocationConnectionFactory(address);
 
         if ( brokerName.equals("*") ) {
-            String[] brokersAtLocation = JmxActiveMQUtil.queryBrokerNames(address);
+            String[] brokersAtLocation = this.jmxActiveMQUtil.queryBrokerNames(address);
             if ( brokersAtLocation == null ) {
                 throw new Exception("unable to locate broker at " + address);
             } else if ( brokersAtLocation.length != 1 ) {
@@ -309,7 +339,8 @@ public class MonitorWebController {
         this.brokerRegistry.put(address, new BrokerInfo("unknown-broker-id", brokerName, "unknown-broker-url"));
 
         ActiveMQBrokerPoller brokerPoller =
-                new ActiveMQBrokerPoller(brokerName, mBeanAccessConnectionFactory, this.websocketBrokerStatsFeed);
+                this.brokerPollerFactory.createPoller(brokerName, mBeanAccessConnectionFactory,
+                        this.websocketBrokerStatsFeed);
 
         brokerPoller.setQueueRegistry(this.queueRegistry);
         brokerPoller.setTopicRegistry(this.topicRegistry);
@@ -319,7 +350,7 @@ public class MonitorWebController {
             if ( ! this.brokerPollerMap.containsKey(address) ) {
                 this.brokerPollerMap.put(address, brokerPoller);
             } else {
-                LOG.info("ignoring duplicate add of broker address {}", address);
+                log.info("ignoring duplicate add of broker address {}", address);
                 return "already exists";
             }
         }
@@ -375,7 +406,7 @@ public class MonitorWebController {
                     result.addAll(this.queryQueueNames(location, oneBrokerName, queueNamePattern)); // RECURSION
                 }
             } else {
-                String[] names = JmxActiveMQUtil.queryQueueNames(location, brokerName, queueNamePattern);
+                String[] names = this.jmxActiveMQUtil.queryQueueNames(location, brokerName, queueNamePattern);
                 result.addAll(Arrays.asList(names));
             }
         }
@@ -398,7 +429,7 @@ public class MonitorWebController {
             try {
                 prepareBrokerPoller(putValue.getBrokerName(), putKey);
             } catch (Exception exc) {
-                LOG.error("Failed to prepare polling for broker: brokerName={}; address={}", putValue.getBrokerName(),
+                log.error("Failed to prepare polling for broker: brokerName={}; address={}", putValue.getBrokerName(),
                         putKey, exc);
             }
         }

@@ -1,6 +1,8 @@
 package com.amlinv.activemq.persistence.impl;
 
 import com.amlinv.activemq.persistence.ApplicationPersistenceAdapter;
+import com.amlinv.activemq.persistence.FileStreamFactory;
+import com.amlinv.activemq.persistence.IOStreamFactory;
 import com.amlinv.activemq.topo.registry.BrokerRegistry;
 import com.amlinv.activemq.topo.registry.DestinationRegistry;
 import com.amlinv.activemq.topo.registry.model.BrokerInfo;
@@ -12,13 +14,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.io.Writer;
 import java.util.Map;
@@ -36,12 +34,39 @@ public class JsonFileApplicationPersistenceAdapter implements ApplicationPersist
     private DestinationRegistry queueRegistry;
     private DestinationRegistry topicRegistry;
 
+    private FileStreamFactory fileStreamFactory = new DefaultFileStreamFactory();
+    private IOStreamFactory ioStreamFactory = new DefaultIOStreamFactory();
+
     public JsonFileApplicationPersistenceAdapter(File storePath) {
         this.storePath = storePath;
     }
 
     public JsonFileApplicationPersistenceAdapter(String storePath) {
         this(new File(storePath));
+    }
+
+    public FileStreamFactory getFileStreamFactory() {
+        return fileStreamFactory;
+    }
+
+    public void setFileStreamFactory(FileStreamFactory fileStreamFactory) {
+        this.fileStreamFactory = fileStreamFactory;
+    }
+
+    public IOStreamFactory getIoStreamFactory() {
+        return ioStreamFactory;
+    }
+
+    public void setIoStreamFactory(IOStreamFactory ioStreamFactory) {
+        this.ioStreamFactory = ioStreamFactory;
+    }
+
+    public Logger getLog() {
+        return log;
+    }
+
+    public void setLog(Logger log) {
+        this.log = log;
     }
 
     @Override
@@ -66,8 +91,8 @@ public class JsonFileApplicationPersistenceAdapter implements ApplicationPersist
         Gson gson = new GsonBuilder()
                 .create();
 
-        try (InputStream inputStream = new FileInputStream(this.storePath)) {
-            try (Reader rdr = new InputStreamReader(inputStream)) {
+        try (InputStream inputStream = this.fileStreamFactory.getInputStream(this.storePath)) {
+            try (Reader rdr = this.ioStreamFactory.createInputReader(inputStream)) {
                 MyDataModel updated = gson.fromJson(rdr, MyDataModel.class);
 
                 if ( updated != null ) {
@@ -89,8 +114,8 @@ public class JsonFileApplicationPersistenceAdapter implements ApplicationPersist
                 .setPrettyPrinting()
                 .create();
 
-        try (OutputStream outputStream = new FileOutputStream(this.storePath)) {
-            try (Writer writer = new OutputStreamWriter(outputStream)) {
+        try (OutputStream outputStream = this.fileStreamFactory.getOutputStream(this.storePath)) {
+            try (Writer writer = this.ioStreamFactory.createOutputWriter(outputStream)) {
                 MyDataModel outBound = new MyDataModel();
 
                 if ( this.brokerRegistry != null ) {

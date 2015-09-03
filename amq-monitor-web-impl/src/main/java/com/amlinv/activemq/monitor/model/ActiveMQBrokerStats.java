@@ -88,7 +88,7 @@ public class ActiveMQBrokerStats implements MBeanLocationParameterSource {
     }
 
     @MBeanAttribute(name = "MemoryPercentUsage", type = int.class)
-    public void setMemoryPercentUsage(long memoryPercentUsage) {
+    public void setMemoryPercentUsage(int memoryPercentUsage) {
         this.memoryPercentUsage = memoryPercentUsage;
     }
 
@@ -101,7 +101,7 @@ public class ActiveMQBrokerStats implements MBeanLocationParameterSource {
     }
 
     @MBeanAttribute(name = "StorePercentUsage", type = int.class)
-    public void setStorePercentUsage(long storePercentUsage) {
+    public void setStorePercentUsage(int storePercentUsage) {
         this.storePercentUsage = storePercentUsage;
     }
 

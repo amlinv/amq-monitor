@@ -40,6 +40,10 @@ public class MonitorWebsocketStaticInjector {
         MonitorWebsocket.setSendTimeout(newTimeout);
     }
 
+    public Scheduler getScheduler() {
+        return MonitorWebsocket.getScheduler();
+    }
+
     public void setScheduler(Scheduler newScheduler) {
         MonitorWebsocket.setScheduler(newScheduler);
     }

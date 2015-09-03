@@ -38,7 +38,7 @@ import java.util.LinkedList;
 @Path("/ws/monitor")
 @ServerEndpoint(value = "/ws/monitor")
 public class MonitorWebsocket {
-    private static final Logger         LOG = LoggerFactory.getLogger(MonitorWebsocket.class);
+    private static final Logger DEFAULT_LOGGER = LoggerFactory.getLogger(MonitorWebsocket.class);
 
     public static final long DEFAULT_SEND_TIMEOUT = 30000;
     public static final long MAX_MSG_BACKLOG = 100;
@@ -46,6 +46,8 @@ public class MonitorWebsocket {
     private static MonitorWebsocketRegistry registry;
     private static long sendTimeout = DEFAULT_SEND_TIMEOUT;
     private static Scheduler scheduler;
+
+    private Logger log = DEFAULT_LOGGER;
 
     private Session socketSession;
     private String socketSessionId;
@@ -70,6 +72,10 @@ public class MonitorWebsocket {
         sendTimeout = newSendTimeout;
     }
 
+    public static Scheduler getScheduler() {
+        return scheduler;
+    }
+
     public static void setScheduler(Scheduler scheduler) {
         MonitorWebsocket.scheduler = scheduler;
     }
@@ -78,9 +84,25 @@ public class MonitorWebsocket {
         scheduler.startProcess(this.sendProcess);
     }
 
+    public Logger getLog() {
+        return log;
+    }
+
+    public void setLog(Logger log) {
+        this.log = log;
+    }
+
+    public StepListSchedulerProcess getSendProcess() {
+        return sendProcess;
+    }
+
+    public void setSendProcess(StepListSchedulerProcess sendProcess) {
+        this.sendProcess = sendProcess;
+    }
+
     @OnClose
     public void onClose(Session sess, CloseReason reason) {
-        LOG.info("Closed websocket session: sessionId={}; reason='{}'", sess.getId(), reason.toString());
+        log.info("Closed websocket session: sessionId={}; reason='{}'", sess.getId(), reason.toString());
 
         registry.remove(sess.getId());
 
@@ -90,14 +112,14 @@ public class MonitorWebsocket {
 
     @OnError
     public void onError (Session sess, Throwable thrown) {
-        LOG.info("Error on websocket session: sessionId={}", sess.getId(), thrown);
+        log.info("Error on websocket session: sessionId={}", sess.getId(), thrown);
 
         this.safeClose();
     }
 
     @OnOpen
     public void onOpen(Session sess) {
-        LOG.debug("websocket connection open: sessionId={}", sess.getId());
+        log.debug("websocket connection open: sessionId={}", sess.getId());
 
         this.socketSession = sess;
         this.socketSessionId = sess.getId();
@@ -108,12 +130,12 @@ public class MonitorWebsocket {
 
     @OnMessage
     public void onMessage (String msg, Session sess) {
-        LOG.debug("message from client {}", msg);
+        log.debug("message from client {}", msg);
     }
 
     public void fireMonitorEventNB(final String action, final String content) throws IOException {
         if (this.socketSession == null) {
-            LOG.info("ignoring event; socket session is undefined: sessionId={}", this.socketSessionId);
+            log.info("ignoring event; socket session is undefined: sessionId={}", this.socketSessionId);
             return;
         }
 
@@ -131,7 +153,7 @@ public class MonitorWebsocket {
             MySendStep sendStep = new MySendStep(msg);
             this.sendProcess.addStep(sendStep);
         } else {
-            LOG.info("websocket backlog is full; aborting connection: sessionId={}", this.socketSessionId);
+            log.info("websocket backlog is full; aborting connection: sessionId={}", this.socketSessionId);
 
             this.safeClose();
         }
@@ -164,12 +186,12 @@ public class MonitorWebsocket {
                 closeSession.close();
             }
         } catch (IOException ioExc) {
-            LOG.debug("io exception on safe close of session", ioExc);
+            log.debug("io exception on safe close of session", ioExc);
         }
     }
 
     protected void onIoException(IOException ioExc) {
-        this.LOG.info("IO exception on write to websocket; closing", ioExc);
+        this.log.info("IO exception on write to websocket; closing", ioExc);
         this.sendProcess.shutdown();
         this.safeClose();
     }

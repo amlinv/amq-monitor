@@ -51,8 +51,8 @@ http://cxf.apache.org/schemas/jaxrs.xsd">
     <bean id="queueRegistry" class="com.amlinv.activemq.topo.registry.DestinationRegistry">
         <property name="listeners">
             <list value-type="com.amlinv.registry.util.RegistryListener">
-                <value>#{websocketBrokerStatsFeed.queueRegistryListener}</value>
-                <value>#{queueStatisticsRegistry.queueRegistryListener}</value>
+                <ref bean="websocketBrokerStatsFeedListener" />
+                <ref bean="queueStatisticsRegistryListener" />
             </list>
         </property>
     </bean>
@@ -92,6 +92,7 @@ http://cxf.apache.org/schemas/jaxrs.xsd">
 
     <!-- STATISTICS REGISTRY -->
     <bean id="queueStatisticsRegistry" class="com.amlinv.activemq.stats.QueueStatisticsRegistry" />
+    <bean id="queueStatisticsRegistryListener" factory-bean="queueStatisticsRegistry" factory-method="getQueueRegistryListener" />
 
     <!-- MONITORING WEBSOCKET -->
     <bean id="monitorWebsocketRegistry" class="com.amlinv.activemq.monitor.web.MonitorWebsocketRegistry" />
@@ -100,6 +101,7 @@ http://cxf.apache.org/schemas/jaxrs.xsd">
         <property name="queueStatisticsRegistry" ref="queueStatisticsRegistry" />
         <!--<property name="metricRegistry" ref="metricRegistry" />-->
     </bean>
+    <bean id="websocketBrokerStatsFeedListener" factory-bean="websocketBrokerStatsFeed" factory-method="getQueueRegistryListener" />
 
     <!-- PROCESS SCHEDULING -->
     <bean id="scheduler" class="com.amlinv.javasched.impl.RoundRobinScheduler" init-method="start" />

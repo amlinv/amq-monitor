@@ -34,6 +34,11 @@ public class QueueStatisticsRegistry {
 
     private MyQueueRegistryListener queueRegistryListener = new MyQueueRegistryListener();
 
+    /**
+     * Retrieve the listener for injection into the queue registry.
+     *
+     * @return
+     */
     public MyQueueRegistryListener getQueueRegistryListener() {
         return queueRegistryListener;
     }
