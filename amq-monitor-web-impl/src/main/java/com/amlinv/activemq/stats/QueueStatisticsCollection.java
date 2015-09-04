@@ -131,13 +131,21 @@ public class QueueStatisticsCollection {
     }
 
     protected void updateNonCountStats(ActiveMQQueueJmxStats updatedStats) {
-        if ( updatedStats.getCursorPercentUsage() > this.aggregatedStats.getCursorPercentUsage() ) {
-            this.aggregatedStats.setCursorPercentUsage(updatedStats.getCursorPercentUsage());
+        int highestCursorPct = 0;
+        int highestMemoryPct = 0;
+
+        for ( QueueStatMeasurements measurements : statsByBroker.values() ) {
+            if ( measurements.statsFromBroker.getCursorPercentUsage() > highestCursorPct ) {
+                highestCursorPct = measurements.statsFromBroker.getCursorPercentUsage();
+            }
+
+            if ( measurements.statsFromBroker.getMemoryPercentUsage() > highestMemoryPct ) {
+                highestMemoryPct = measurements.statsFromBroker.getMemoryPercentUsage();
+            }
         }
 
-        if ( updatedStats.getMemoryPercentUsage() > this.aggregatedStats.getMemoryPercentUsage() ) {
-            this.aggregatedStats.setMemoryPercentUsage(updatedStats.getMemoryPercentUsage());
-        }
+        this.aggregatedStats.setCursorPercentUsage(highestCursorPct);
+        this.aggregatedStats.setMemoryPercentUsage(highestMemoryPct);
     }
 
     /**

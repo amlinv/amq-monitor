@@ -56,6 +56,7 @@ public class QueueStatisticsCollectionTest {
         Mockito.when(this.mockQueueStatsPolled002.getBrokerName()).thenReturn("x-broker-name-002-x");
         Mockito.when(this.mockQueueStatsPolled001.dup("x-broker-name-001-x")).thenReturn(this.mockQueueStatsDup);
         Mockito.when(this.mockQueueStatsPolled001.dup("totals")).thenReturn(this.mockQueueStatsTotal001);
+        Mockito.when(this.mockQueueStatsPolled002.dup("x-broker-name-002-x")).thenReturn(this.mockQueueStatsTotal002);
 
         Mockito.when(this.mockQueueStatsPolled001.getCursorPercentUsage()).thenReturn(37);
         Mockito.when(this.mockQueueStatsPolled001.getMemoryPercentUsage()).thenReturn(47);
@@ -103,6 +104,10 @@ public class QueueStatisticsCollectionTest {
     public void testOnUpdatedStatsTwoBrokers() throws Exception {
         Mockito.when(this.mockQueueStatsTotal001.addCounts(this.mockQueueStatsPolled002, "totals"))
                 .thenReturn(this.mockQueueStatsTotal002);
+        Mockito.when(this.mockQueueStatsTotal001.getCursorPercentUsage()).thenReturn(10);
+        Mockito.when(this.mockQueueStatsTotal002.getCursorPercentUsage()).thenReturn(12);
+        Mockito.when(this.mockQueueStatsTotal001.getMemoryPercentUsage()).thenReturn(22);
+        Mockito.when(this.mockQueueStatsTotal002.getMemoryPercentUsage()).thenReturn(20);
 
         this.collection.onUpdatedStats(this.mockQueueStatsPolled001);
         this.collection.onUpdatedStats(this.mockQueueStatsPolled002);
