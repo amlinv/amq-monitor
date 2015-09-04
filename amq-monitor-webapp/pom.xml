@@ -28,7 +28,9 @@
     <packaging>war</packaging>
 
     <name>ActiveMQ Monitor :: Application</name>
-    <description>Application used to monitor ActiveMQ instances and topologies of brokers.</description>
+    <description>
+        Web Application for monitoring ActiveMQ instances and topologies of brokers.
+    </description>
 
     <dependencies>
         <dependency>
