@@ -19,6 +19,7 @@ package com.amlinv.activemq.monitor.activemq.impl;
 import com.amlinv.activemq.monitor.activemq.BrokerStatsJmxAttributePoller;
 import com.amlinv.activemq.monitor.activemq.BrokerStatsJmxAttributePollerFactory;
 import com.amlinv.activemq.monitor.model.BrokerStatsPackage;
+import com.amlinv.javasched.Scheduler;
 
 import java.util.List;
 
@@ -27,7 +28,9 @@ import java.util.List;
  */
 public class DefaultBrokerStatsJmxAttributePollerFactory implements BrokerStatsJmxAttributePollerFactory {
     @Override
-    public BrokerStatsJmxAttributePoller createPoller(List<Object> polledObjects, BrokerStatsPackage resultStorage) {
-        return new BrokerStatsJmxAttributePoller(polledObjects, resultStorage);
+    public BrokerStatsJmxAttributePoller createPoller(List<Object> polledObjects, BrokerStatsPackage resultStorage,
+                                                      Scheduler scheduler) {
+
+        return new BrokerStatsJmxAttributePoller(polledObjects, resultStorage, scheduler);
     }
 }

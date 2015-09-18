@@ -16,12 +16,17 @@
 
 package com.amlinv.activemq.persistence.impl;
 
+import com.amlinv.activemq.monitor.TopologyStateFactory;
 import com.amlinv.activemq.persistence.FileStreamFactory;
 import com.amlinv.activemq.persistence.IOStreamFactory;
 import com.amlinv.activemq.topo.registry.BrokerRegistry;
+import com.amlinv.activemq.topo.registry.BrokerTopologyRegistry;
 import com.amlinv.activemq.topo.registry.DestinationRegistry;
 import com.amlinv.activemq.topo.registry.model.BrokerInfo;
 import com.amlinv.activemq.topo.registry.model.DestinationState;
+import com.amlinv.activemq.topo.registry.model.LocatedBrokerId;
+import com.amlinv.activemq.topo.registry.model.TopologyInfo;
+import com.amlinv.activemq.topo.registry.model.TopologyState;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -37,15 +42,17 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.junit.Assert.*;
 
 /**
  * Created by art on 9/1/15.
  */
-public class JsonFileApplicationPersistenceAdapterTest {
+public class JsonFileApplicationPersistenceAdapterV1Test {
 
-    private JsonFileApplicationPersistenceAdapter adapter;
+    private JsonFileApplicationPersistenceAdapterV1 adapter;
 
     private FileStreamFactory mockFileStreamFactory;
     private FileInputStream mockFileInputStream;
@@ -53,12 +60,15 @@ public class JsonFileApplicationPersistenceAdapterTest {
     private IOStreamFactory mockIOStreamFactory;
     private InputStreamReader mockInputStreamReader;
     private OutputStreamWriter mockOutputStreamWriter;
+    private TopologyStateFactory mockTopologyStateFactory;
+    private TopologyState mockTopologyState;
+    private BrokerRegistry mockBrokerRegistry;
+    private DestinationRegistry mockQueueRegistry;
+    private DestinationRegistry mockTopicRegistry;
 
     private Logger mockLogger;
 
-    private BrokerRegistry brokerRegistry;
-    private DestinationRegistry queueRegistry;
-    private DestinationRegistry topicRegistry;
+    private BrokerTopologyRegistry mockTopologyRegistry;
 
     private ByteArrayInputStream inputData;
     private ByteArrayOutputStream outputData;
@@ -67,7 +77,7 @@ public class JsonFileApplicationPersistenceAdapterTest {
 
     @Before
     public void setupTest() throws Exception {
-        this.adapter = new JsonFileApplicationPersistenceAdapter("x-file-path-x");
+        this.adapter = new JsonFileApplicationPersistenceAdapterV1("x-file-path-x");
 
         this.path = new File("x-file-path-x");
 
@@ -77,12 +87,14 @@ public class JsonFileApplicationPersistenceAdapterTest {
         this.mockIOStreamFactory = Mockito.mock(IOStreamFactory.class);
         this.mockInputStreamReader = Mockito.mock(InputStreamReader.class);
         this.mockOutputStreamWriter = Mockito.mock(OutputStreamWriter.class);
+        this.mockTopologyStateFactory = Mockito.mock(TopologyStateFactory.class);
+        this.mockTopologyState = Mockito.mock(TopologyState.class);
+        this.mockBrokerRegistry = Mockito.mock(BrokerRegistry.class);
+        this.mockQueueRegistry = Mockito.mock(DestinationRegistry.class);
+        this.mockTopicRegistry = Mockito.mock(DestinationRegistry.class);
+        this.mockTopologyRegistry = Mockito.mock(BrokerTopologyRegistry.class);
 
         this.mockLogger = Mockito.mock(Logger.class);
-
-        this.brokerRegistry = new BrokerRegistry();
-        this.queueRegistry = new DestinationRegistry();
-        this.topicRegistry = new DestinationRegistry();
 
         this.outputData = new ByteArrayOutputStream();
 
@@ -96,13 +108,21 @@ public class JsonFileApplicationPersistenceAdapterTest {
         Mockito.when(this.mockIOStreamFactory.createOutputWriter(this.mockFileOutputStream))
                 .thenReturn(this.mockOutputStreamWriter);
 
+        Mockito.when(this.mockTopologyStateFactory.createTopologyState(Mockito.any(TopologyInfo.class)))
+                .thenReturn(this.mockTopologyState);
+        Mockito.when(this.mockTopologyRegistry.get(JsonFileApplicationPersistenceAdapterV1.DEFAULT_TOPOLOGY_NAME))
+                .thenReturn(this.mockTopologyState);
+        Mockito.when(this.mockTopologyState.getBrokerRegistry()).thenReturn(this.mockBrokerRegistry);
+        Mockito.when(this.mockTopologyState.getQueueRegistry()).thenReturn(this.mockQueueRegistry);
+        Mockito.when(this.mockTopologyState.getTopicRegistry()).thenReturn(this.mockTopicRegistry);
+
         this.prepareMockInputStream();
         this.prepareMockOutputStream();
     }
 
     @Test
     public void testAlternateConstructor() throws Exception {
-        this.adapter = new JsonFileApplicationPersistenceAdapter(new File("x-alt-file-path-x"));
+        this.adapter = new JsonFileApplicationPersistenceAdapterV1(new File("x-alt-file-path-x"));
     }
 
     @Test
@@ -121,6 +141,30 @@ public class JsonFileApplicationPersistenceAdapterTest {
 
         this.adapter.setIoStreamFactory(this.mockIOStreamFactory);
         assertSame(this.mockIOStreamFactory, this.adapter.getIoStreamFactory());
+    }
+
+    @Test
+    public void testGetSetTopologyRegistry() throws Exception {
+        assertNull(this.adapter.getTopologyRegistry());
+
+        this.adapter.setTopologyRegistry(this.mockTopologyRegistry);
+        assertSame(this.mockTopologyRegistry, this.adapter.getTopologyRegistry());
+    }
+
+    @Test
+    public void testGetSetTopologyStateFactory() throws Exception {
+        assertNull(this.adapter.getTopologyStateFactory());
+
+        this.adapter.setTopologyStateFactory(this.mockTopologyStateFactory);
+        assertSame(this.mockTopologyStateFactory, this.adapter.getTopologyStateFactory());
+    }
+
+    @Test
+    public void testGetSetTopolgyName() throws Exception {
+        assertEquals(JsonFileApplicationPersistenceAdapterV1.DEFAULT_TOPOLOGY_NAME, this.adapter.getTopologyName());
+
+        this.adapter.setTopologyName("x-topology-name-x");
+        assertEquals("x-topology-name-x", this.adapter.getTopologyName());
     }
 
     @Test
@@ -145,21 +189,16 @@ public class JsonFileApplicationPersistenceAdapterTest {
     public void testLoadEmpty() throws Exception {
         this.inputData = new ByteArrayInputStream(new byte[0]);
 
-        this.brokerRegistry = Mockito.mock(BrokerRegistry.class);
-        this.queueRegistry = Mockito.mock(DestinationRegistry.class);
-        this.topicRegistry = Mockito.mock(DestinationRegistry.class);
+        this.mockTopologyRegistry = Mockito.mock(BrokerTopologyRegistry.class);
 
         this.adapter.setFileStreamFactory(this.mockFileStreamFactory);
 
-        this.adapter.setBrokerRegistry(this.brokerRegistry);
-        this.adapter.setQueueRegistry(this.queueRegistry);
-        this.adapter.setTopicRegistry(this.topicRegistry);
+        this.adapter.setTopologyRegistry(this.mockTopologyRegistry);
+        this.adapter.setTopologyStateFactory(this.mockTopologyStateFactory);
 
         this.adapter.load();
 
-        Mockito.verifyZeroInteractions(this.brokerRegistry);
-        Mockito.verifyZeroInteractions(this.queueRegistry);
-        Mockito.verifyZeroInteractions(this.topicRegistry);
+        Mockito.verifyZeroInteractions(this.mockTopologyRegistry);
     }
 
     @Test
@@ -221,9 +260,19 @@ public class JsonFileApplicationPersistenceAdapterTest {
         String json;
 
         this.outputData.reset();
-        this.brokerRegistry.put("x-broker1-x", new BrokerInfo("x-broker1-x", "x-broker-name-x", "x-broker-url-x"));
-        this.queueRegistry.put("x-queue1-x", new DestinationState("x-queue1-x", "x-broker-name-x"));
-        this.topicRegistry.put("x-topic1-x", new DestinationState("x-topic1-x", "x-broker-name-x"));
+
+        Map<LocatedBrokerId, BrokerInfo> brokerInfoMap = new HashMap<>();
+        brokerInfoMap.put(new LocatedBrokerId("x-location1-x", "x-broker1-x"),
+                new BrokerInfo("x-broker1-x", "x-broker-name-x", "x-broker-url-x"));
+        Mockito.when(this.mockBrokerRegistry.asMap()).thenReturn(brokerInfoMap);
+
+        Map<String, DestinationState> queueMap = new HashMap<>();
+        queueMap.put("x-queue1-x", new DestinationState("x-queue1-x", "x-broker-name-x"));
+        Mockito.when(this.mockQueueRegistry.asMap()).thenReturn(queueMap);
+
+        Map<String, DestinationState> topicMap = new HashMap<>();
+        topicMap.put("x-topic1-x", new DestinationState("x-topic1-x", "x-broker-name-x"));
+        Mockito.when(this.mockTopicRegistry.asMap()).thenReturn(topicMap);
 
         this.adapter.save();
 
@@ -240,9 +289,7 @@ public class JsonFileApplicationPersistenceAdapterTest {
         this.adapter.setFileStreamFactory(this.mockFileStreamFactory);
         prepareSave();
 
-        this.adapter.setBrokerRegistry(null);
-        this.adapter.setQueueRegistry(null);
-        this.adapter.setTopicRegistry(null);
+        this.adapter.setTopologyRegistry(null);
 
         this.adapter.save();
 
@@ -347,29 +394,28 @@ public class JsonFileApplicationPersistenceAdapterTest {
     protected void prepareLoad() throws Exception {
         this.inputData = new ByteArrayInputStream(this.getTestInput().getBytes());
 
-        this.brokerRegistry = Mockito.mock(BrokerRegistry.class);
-        this.queueRegistry = Mockito.mock(DestinationRegistry.class);
-        this.topicRegistry = Mockito.mock(DestinationRegistry.class);
+        this.mockTopologyRegistry = Mockito.mock(BrokerTopologyRegistry.class);
 
         this.adapter.setFileStreamFactory(this.mockFileStreamFactory);
 
-        this.adapter.setBrokerRegistry(this.brokerRegistry);
-        this.adapter.setQueueRegistry(this.queueRegistry);
-        this.adapter.setTopicRegistry(this.topicRegistry);
+        this.adapter.setTopologyStateFactory(this.mockTopologyStateFactory);
+        this.adapter.setTopologyRegistry(this.mockTopologyRegistry);
+
+        Mockito.when(this.mockTopologyRegistry.get(JsonFileApplicationPersistenceAdapterV1.DEFAULT_TOPOLOGY_NAME))
+                .thenReturn(this.mockTopologyState);
     }
 
     protected void validateLoad() {
-        Mockito.verify(this.brokerRegistry).put(Mockito.eq("x-broker1-x"), Mockito.any(BrokerInfo.class));
-        Mockito.verify(this.queueRegistry).put(Mockito.eq("x-queue1-x"), Mockito.any(DestinationState.class));
-        Mockito.verify(this.topicRegistry).put(Mockito.eq("x-topic1-x"), Mockito.any(DestinationState.class));
+        Mockito.verify(this.mockBrokerRegistry).put(Mockito.eq(new LocatedBrokerId("x-location1-x", "x-broker-name-x")),
+                Mockito.any(BrokerInfo.class));
+        Mockito.verify(this.mockQueueRegistry).put(Mockito.eq("x-queue1-x"), Mockito.any(DestinationState.class));
+        Mockito.verify(this.mockTopicRegistry).put(Mockito.eq("x-topic1-x"), Mockito.any(DestinationState.class));
     }
 
     protected void prepareSave() {
         this.adapter.setFileStreamFactory(this.mockFileStreamFactory);
 
-        this.adapter.setBrokerRegistry(this.brokerRegistry);
-        this.adapter.setQueueRegistry(this.queueRegistry);
-        this.adapter.setTopicRegistry(this.topicRegistry);
+        this.adapter.setTopologyRegistry(this.mockTopologyRegistry);
     }
 
     protected void prepareMockInputStream() throws Exception {
@@ -446,7 +492,7 @@ public class JsonFileApplicationPersistenceAdapterTest {
                 "    }\n" +
                 "  },\n" +
                 "  \"brokerRegistry\": {\n" +
-                "    \"x-broker1-x\": {\n" +
+                "    \"x-location1-x\": {\n" +
                 "      \"brokerId\": \"x-broker1-x\",\n" +
                 "      \"brokerName\": \"x-broker-name-x\",\n" +
                 "      \"brokerUrl\": \"x-broker-url-x\"\n" +

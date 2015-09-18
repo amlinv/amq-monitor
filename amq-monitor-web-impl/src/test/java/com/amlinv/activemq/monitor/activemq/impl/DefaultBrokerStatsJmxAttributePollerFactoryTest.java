@@ -18,7 +18,7 @@ package com.amlinv.activemq.monitor.activemq.impl;
 
 import com.amlinv.activemq.monitor.activemq.BrokerStatsJmxAttributePoller;
 import com.amlinv.activemq.monitor.model.BrokerStatsPackage;
-import com.amlinv.jmxutil.polling.JmxAttributePoller;
+import com.amlinv.javasched.Scheduler;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -38,12 +38,14 @@ public class DefaultBrokerStatsJmxAttributePollerFactoryTest {
 
     private List<Object> polledObjects;
     private BrokerStatsPackage statsPackage;
+    private Scheduler mockScheduler;
 
     @Before
     public void setupTest() throws Exception {
         factory = new DefaultBrokerStatsJmxAttributePollerFactory();
 
         this.statsPackage = Mockito.mock(BrokerStatsPackage.class);
+        this.mockScheduler = Mockito.mock(Scheduler.class);
 
         this.polledObjects = new LinkedList<Object>();
         this.polledObjects.add("x-obj1-x");
@@ -52,7 +54,8 @@ public class DefaultBrokerStatsJmxAttributePollerFactoryTest {
 
     @Test
     public void testCreatePoller() throws Exception {
-        BrokerStatsJmxAttributePoller poller = this.factory.createPoller(this.polledObjects, this.statsPackage);
+        BrokerStatsJmxAttributePoller poller =
+                this.factory.createPoller(this.polledObjects, this.statsPackage, this.mockScheduler);
 
         assertNotNull(poller);
         assertEquals(new HashSet<>(this.polledObjects), new HashSet<>(poller.getPolledObjects()));

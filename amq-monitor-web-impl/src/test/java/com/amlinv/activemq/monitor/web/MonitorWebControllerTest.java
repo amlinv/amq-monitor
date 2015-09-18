@@ -21,9 +21,13 @@ import com.amlinv.activemq.monitor.activemq.ActiveMQBrokerPollerFactory;
 import com.amlinv.activemq.topo.jmxutil.polling.JmxActiveMQUtil2;
 import com.amlinv.activemq.topo.registry.BrokerRegistry;
 import com.amlinv.activemq.topo.registry.BrokerRegistryListener;
+import com.amlinv.activemq.topo.registry.BrokerTopologyRegistry;
 import com.amlinv.activemq.topo.registry.DestinationRegistry;
 import com.amlinv.activemq.topo.registry.model.BrokerInfo;
 import com.amlinv.activemq.topo.registry.model.DestinationState;
+import com.amlinv.activemq.topo.registry.model.LocatedBrokerId;
+import com.amlinv.activemq.topo.registry.model.TopologyState;
+import com.amlinv.javasched.Scheduler;
 import com.amlinv.jmxutil.connection.MBeanAccessConnection;
 import com.amlinv.jmxutil.connection.MBeanAccessConnectionFactory;
 import org.junit.After;
@@ -49,6 +53,8 @@ public class MonitorWebControllerTest {
 
     private Logger mockLogger;
 
+    private BrokerTopologyRegistry mockBrokerTopologyRegistry;
+    private TopologyState mockTopologyState;
     private BrokerRegistry mockBrokerRegistry;
     private DestinationRegistry mockQueueRegistry;
     private MonitorWebsocketBrokerStatsFeed mockFeed;
@@ -57,6 +63,7 @@ public class MonitorWebControllerTest {
     private MBeanAccessConnectionFactory mockMBeanAccessConnectionFactory;
     private MBeanAccessConnection mockMBeanAccessConnection;
     private JmxActiveMQUtil2 mockJmxActiveMQUtil;
+    private Scheduler mockScheduler;
 
     @Before
     public void setupTest() throws Exception {
@@ -64,6 +71,8 @@ public class MonitorWebControllerTest {
 
         this.mockLogger = Mockito.mock(Logger.class);
 
+        this.mockBrokerTopologyRegistry = Mockito.mock(BrokerTopologyRegistry.class);
+        this.mockTopologyState = Mockito.mock(TopologyState.class);
         this.mockBrokerRegistry = Mockito.mock(BrokerRegistry.class);
         this.mockQueueRegistry = Mockito.mock(DestinationRegistry.class);
         this.mockFeed = Mockito.mock(MonitorWebsocketBrokerStatsFeed.class);
@@ -72,6 +81,7 @@ public class MonitorWebControllerTest {
         this.mockMBeanAccessConnectionFactory = Mockito.mock(MBeanAccessConnectionFactory.class);
         this.mockMBeanAccessConnection = Mockito.mock(MBeanAccessConnection.class);
         this.mockJmxActiveMQUtil = Mockito.mock(JmxActiveMQUtil2.class);
+        this.mockScheduler = Mockito.mock(Scheduler.class);
 
         Mockito.when(this.mockJmxActiveMQUtil.queryQueueNames("x-location1-x", "x-broker1-x", "*"))
                 .thenReturn(new String[]{"x-queue-discovered1-x", "x-queue-discovered2-x"});
@@ -80,8 +90,11 @@ public class MonitorWebControllerTest {
         Mockito.when(this.mockMBeanAccessConnectionFactory.createConnection())
                 .thenReturn(this.mockMBeanAccessConnection);
         Mockito.when(this.mockBrokerPollerFactory
-                .createPoller("x-broker1-x", this.mockMBeanAccessConnectionFactory, this.mockFeed))
+                .createPoller("x-broker1-x", this.mockMBeanAccessConnectionFactory, this.mockFeed, this.mockScheduler))
                 .thenReturn(this.mockBrokerPoller);
+
+        Mockito.when(this.mockTopologyState.getBrokerRegistry()).thenReturn(this.mockBrokerRegistry);
+        Mockito.when(this.mockTopologyState.getQueueRegistry()).thenReturn(this.mockQueueRegistry);
     }
 
     @After
@@ -98,32 +111,11 @@ public class MonitorWebControllerTest {
     }
 
     @Test
-    public void testGetSetBrokerRegistry() throws Exception {
-        assertNull(this.webController.getBrokerRegistry());
-
-        this.webController.setBrokerRegistry(this.mockBrokerRegistry);
-        assertSame(this.mockBrokerRegistry, this.webController.getBrokerRegistry());
-    }
-
-    @Test
-    public void testGetSetQueueRegistry() throws Exception {
-        assertNull(this.webController.getQueueRegistry());
-
-        this.webController.setQueueRegistry(this.mockQueueRegistry);
-        assertSame(this.mockQueueRegistry, this.webController.getQueueRegistry());
-    }
-
-    @Test
     public void testGetSetWebsocketBrokerStatsFeed() throws Exception {
         assertNull(this.webController.getWebsocketBrokerStatsFeed());
 
         this.webController.setWebsocketBrokerStatsFeed(this.mockFeed);
         assertSame(this.mockFeed, this.webController.getWebsocketBrokerStatsFeed());
-    }
-
-    @Test
-    public void testGetBrokerRegistryListener() throws Exception {
-        assertNotNull(this.webController.getBrokerRegistryListener());
     }
 
     @Test
@@ -164,13 +156,14 @@ public class MonitorWebControllerTest {
     public void testInitWithAutoStart() throws Exception {
         this.prepareWebController();
 
-        this.webController.addBroker("x-broker1-x", "x-location1-x");
-        this.webController.setAutoStart(true);
-        this.webController.init();
-
-        Mockito.verify(this.mockLogger).info("Initializing monitor web controller");
-        Mockito.verify(this.mockLogger).info("Starting monitoring now");
-        Mockito.verify(this.mockBrokerPoller).start();
+//        TBD
+//        this.webController.addBroker("x-broker1-x", "x-location1-x", "x-topology1-x");
+//        this.webController.setAutoStart(true);
+//        this.webController.init();
+//
+//        Mockito.verify(this.mockLogger).info("Initializing monitor web controller");
+//        Mockito.verify(this.mockLogger).info("Starting monitoring now");
+//        Mockito.verify(this.mockBrokerPoller).start();
     }
 
     @Test
@@ -188,12 +181,13 @@ public class MonitorWebControllerTest {
     public void testShutdown() throws Exception {
         this.prepareWebController();
 
-        this.webController.addBroker("x-broker1-x", "x-location1-x");
+        this.webController.addBroker("x-broker1-x", "x-location1-x", "x-topology1-x");
         this.webController.requestStartMonitoring();
 
         this.webController.shutdown();
 
-        Mockito.verify(this.mockBrokerPoller).stop();
+//        TBD
+//        Mockito.verify(this.mockBrokerPoller).stop();
     }
 
     @Test
@@ -202,22 +196,23 @@ public class MonitorWebControllerTest {
         List<BrokerInfo> brokers = Arrays.asList(
                 new BrokerInfo("x-broker-id-1-x", "x-broker-name-1-x", "x-url1-x"),
                 new BrokerInfo("x-broker-id-2-x", "x-broker-name-2-x", "x-url2-x"));
-        Mockito.when(this.mockBrokerRegistry.values()).thenReturn(brokers);
 
-        List<BrokerInfo> result = this.webController.listMonitoredBrokers();
+        // TBD
+//        List<BrokerInfo> result = this.webController.listMonitoredBrokers();
 
-        assertEquals(brokers, result);
+//        assertEquals(brokers, result);
     }
 
     @Test
     public void testAddBroker() throws Exception {
         this.prepareWebController();
 
-        this.webController.addBroker("x-broker1-x", "x-location1-x");
+        this.webController.addBroker("x-broker1-x", "x-location1-x", "x-topology1-x");
         this.webController.requestStartMonitoring();
 
-        Mockito.verify(this.mockBrokerRegistry).put(Mockito.eq("x-location1-x"),
-                this.matchBrokerInfo("unknown-broker-id", "x-broker1-x", "unknown-broker-url"));
+        // TBD
+//        Mockito.verify(this.mockBrokerRegistry).put(Mockito.eq("x-location1-x"),
+//                this.matchBrokerInfo("unknown-broker-id", "x-broker1-x", "unknown-broker-url"));
     }
 
     @Test
@@ -227,11 +222,12 @@ public class MonitorWebControllerTest {
         String[] brokers = new String[] { "x-broker1-x" };
         Mockito.when(this.mockJmxActiveMQUtil.queryBrokerNames("x-location1-x")).thenReturn(brokers);
 
-        this.webController.addBroker("*", "x-location1-x");
+        this.webController.addBroker("*", "x-location1-x", "x-topology1-x");
         this.webController.requestStartMonitoring();
 
-        Mockito.verify(this.mockBrokerRegistry).put(Mockito.eq("x-location1-x"),
-                this.matchBrokerInfo("unknown-broker-id", "x-broker1-x", "unknown-broker-url"));
+        // TBD
+//        Mockito.verify(this.mockBrokerRegistry).put(Mockito.eq("x-location1-x"),
+//                this.matchBrokerInfo("unknown-broker-id", "x-broker1-x", "unknown-broker-url"));
     }
 
     @Test
@@ -241,7 +237,7 @@ public class MonitorWebControllerTest {
         Mockito.when(this.mockJmxActiveMQUtil.queryBrokerNames("x-location1-x")).thenReturn(null);
 
         try {
-            this.webController.addBroker("*", "x-location1-x");
+            this.webController.addBroker("*", "x-location1-x", "x-topology1-x");
             fail("missing expected exception");
         } catch (Exception actualExc) {
             assertEquals("unable to locate broker at x-location1-x", actualExc.getMessage());
@@ -252,23 +248,19 @@ public class MonitorWebControllerTest {
     public void testAddBrokerAlreadyExisting() throws Exception {
         this.prepareWebController();
 
-        this.webController.addBroker("x-broker1-x", "x-location1-x");
+        Mockito.when(this.mockBrokerTopologyRegistry.get("x-topology1-x")).thenReturn(this.mockTopologyState);
+
+        BrokerInfo brokerInfo = new BrokerInfo("unknown-broker-id", "x-broker1-x", "unknown-broker-url");
+        Mockito.when(this.mockBrokerRegistry.putIfAbsent(Mockito.eq(new LocatedBrokerId("x-location1-x", "x-broker1-x")),
+                this.matchBrokerInfo("unknown-broker-id", "x-broker1-x", "unknown-broker-url")))
+                .thenReturn(brokerInfo);
+
+        this.webController.addBroker("x-broker1-x", "x-location1-x", "x-topology1-x");
 
         String result;
-        result = this.webController.addBroker("x-broker1-x", "x-location1-x");
+        result = this.webController.addBroker("x-broker1-x", "x-location1-x", "x-topology1-x");
 
-        assertEquals("already exists", result);
-        Mockito.verify(this.mockLogger).info("ignoring duplicate add of broker address {}", "x-location1-x");
-    }
-
-    @Test
-    public void testAddBrokerWhileRunning() throws Exception {
-        this.prepareWebController();
-
-        this.webController.requestStartMonitoring();
-        this.webController.addBroker("x-broker1-x", "x-location1-x");
-
-        Mockito.verify(this.mockBrokerPoller).start();
+        assertEquals("broker already exists", result);
     }
 
     @Test
@@ -279,18 +271,16 @@ public class MonitorWebControllerTest {
         Mockito.when(this.mockJmxActiveMQUtil.queryBrokerNames("x-location1-x")).thenReturn(brokers);
 
         try {
-            this.webController.addBroker("*", "x-location1-x");
+            this.webController.addBroker("*", "x-location1-x", "x-topology1-x");
             fail("missing expected exception");
         } catch (Exception actualExc) {
-            assertEquals("found more than one broker at x-location1-x; count=2", actualExc.getMessage());
+            assertEquals("number of brokers at x-location1-x is not 1: count=2", actualExc.getMessage());
         }
     }
 
     @Test
     public void testAddQueueAllLocations() throws Exception {
         this.prepareWebController();
-        Mockito.when(this.mockBrokerRegistry.keys())
-                .thenReturn(new HashSet<>(Arrays.asList("x-location1-x", "x-location2-x")));
         Mockito.when(this.mockJmxActiveMQUtil.queryBrokerNames("x-location1-x"))
                 .thenReturn(new String[] { "x-broker1-x" });
         Mockito.when(this.mockJmxActiveMQUtil.queryBrokerNames("x-location2-x"))
@@ -300,97 +290,46 @@ public class MonitorWebControllerTest {
         Mockito.when(this.mockJmxActiveMQUtil.queryQueueNames("x-location2-x", "x-broker2-x", "*"))
                 .thenReturn(new String[]{"x-queue21-x", "x-queue22-x"});
 
-        this.webController.addQueue("*", "*", "*");
+        this.webController.addQueue("*", "*", "*", "x-topology1-x");
 
-        Mockito.verify(this.mockQueueRegistry).putIfAbsent("x-queue11-x", new DestinationState("x-queue11-x"));
-        Mockito.verify(this.mockQueueRegistry).putIfAbsent("x-queue12-x", new DestinationState("x-queue12-x"));
-        Mockito.verify(this.mockQueueRegistry).putIfAbsent("x-queue21-x", new DestinationState("x-queue21-x"));
-        Mockito.verify(this.mockQueueRegistry).putIfAbsent("x-queue22-x", new DestinationState("x-queue22-x"));
-
+        // TBD
     }
 
     @Test
     public void testRemoveBrokerForm() throws Exception {
         this.prepareWebController();
+        Mockito.when(this.mockBrokerTopologyRegistry.get("x-topology1-x")).thenReturn(this.mockTopologyState);
+        Mockito.when(this.mockBrokerRegistry.remove(new LocatedBrokerId("x-location1-x", "x-broker1-x")))
+                .thenReturn(new BrokerInfo("unknown-broker-id", "x-broker1-x", "unknown-broker-url"));
 
-        this.webController.addBroker("x-broker1-x", "x-location1-x");
-
-        String result = this.webController.removeBrokerForm("x-location1-x");
+        String result = this.webController.removeBrokerForm("x-broker1-x", "x-location1-x", "x-topology1-x");
 
         assertEquals("removed", result);
-        Mockito.verify(this.mockBrokerRegistry).remove("x-location1-x");
-        Mockito.verify(this.mockBrokerPoller).stop();
     }
 
     @Test
     public void testRemoveBrokerFormNonExistentBroker() throws Exception {
         this.prepareWebController();
 
-        String result = this.webController.removeBrokerForm("x-location-x");
-
-        assertEquals("not found", result);
-        Mockito.verify(this.mockBrokerRegistry).remove("x-location-x");
+        // TBD
     }
 
     @Test
     public void testAddQueue() throws Exception {
         this.prepareWebController();
 
-        this.webController.addQueue("x-queue1-x", "x-broker1-x", "x-location1-x");
+        this.webController.addQueue("x-queue1-x", "x-broker1-x", "x-location1-x", "x-topology1-x");
 
-        Mockito.verify(this.mockQueueRegistry).putIfAbsent("x-queue1-x", new DestinationState("x-queue1-x"));
+        // TBD
     }
 
-    @Test
-    public void testAddAllQueues() throws Exception {
-        this.prepareWebController();
-
-        Response response = this.webController.addQueue("*", "x-broker1-x", "x-location1-x");
-
-        assertEquals(new HashSet<>(Arrays.asList("x-queue-discovered1-x", "x-queue-discovered2-x")),
-                response.getEntity());
-
-        Mockito.verify(this.mockQueueRegistry)
-                .putIfAbsent("x-queue-discovered1-x", new DestinationState("x-queue-discovered1-x"));
-        Mockito.verify(this.mockQueueRegistry)
-                .putIfAbsent("x-queue-discovered2-x", new DestinationState("x-queue-discovered2-x"));
-    }
-
-    @Test
-    public void testRemoveQueue() throws Exception {
-        this.prepareWebController();
-
-        Response response = this.webController.removeQueue("x-queue1-x", "x-broker1-x", "x-location1-x");
-
-        assertEquals(new HashSet<>(Arrays.asList("x-queue1-x")), response.getEntity());
-        Mockito.verify(this.mockQueueRegistry).remove("x-queue1-x");
-    }
-
-    @Test
-    public void testRemoveQueueWildcard() throws Exception {
-        this.prepareWebController();
-
-        Response response = this.webController.removeQueue("*", "x-broker1-x", "x-location1-x");
-
-        assertEquals(new HashSet<>(Arrays.asList("x-queue-discovered1-x", "x-queue-discovered2-x")),
-                response.getEntity());
-
-        Mockito.verify(this.mockQueueRegistry).remove("x-queue-discovered1-x");
-        Mockito.verify(this.mockQueueRegistry).remove("x-queue-discovered2-x");
-    }
 
     @Test
     public void testRequestStartMonitoring() throws Exception {
         this.prepareWebController();
 
-        this.webController.addBroker("x-broker1-x", "x-location1-x");
         String result = this.webController.requestStartMonitoring();
-
-        Mockito.verify(this.mockBrokerPoller).start();
-        assertEquals("started", result);
-
-        result = this.webController.requestStartMonitoring();
-        assertEquals("already running", result);
+        assertEquals("no-op", result);
     }
 
     @Test
@@ -406,59 +345,11 @@ public class MonitorWebControllerTest {
     }
 
     @Test
-    public void testBrokerRegistryAdd() throws Exception {
-        this.prepareWebController();
-
-        this.webController.requestStartMonitoring();
-        BrokerRegistryListener listener = this.webController.getBrokerRegistryListener();
-        listener.onPutEntry("x-location1-x", new BrokerInfo("x-broker-id1-x", "x-broker1-x", "x-url1-x"));
-
-        Mockito.verify(this.mockBrokerPoller).start();
-    }
-
-    @Test
-    public void testBrokerRegistryAddException() throws Exception {
-        this.prepareWebController();
-        Mockito.when(this.mockJmxActiveMQUtil.queryBrokerNames("x-location1-x")).thenReturn(null);
-
-        this.webController.requestStartMonitoring();
-        BrokerRegistryListener listener = this.webController.getBrokerRegistryListener();
-        listener.onPutEntry("x-location1-x", new BrokerInfo("x-broker-id1-x", "*", "x-url1-x"));
-
-        Mockito.verify(this.mockLogger)
-                .error(Mockito.eq("Failed to prepare polling for broker: brokerName={}; address={}"), Mockito.eq("*"),
-                        Mockito.eq("x-location1-x"), Mockito.any(Exception.class));
-    }
-
-    @Test
-    public void testBrokerRegistryRemove() throws Exception {
-        this.prepareWebController();
-
-        this.webController.requestStartMonitoring();
-        this.webController.addBroker("x-broker1-x", "x-location1-x");
-        Mockito.verify(this.mockBrokerPoller).start();
-
-        BrokerRegistryListener listener = this.webController.getBrokerRegistryListener();
-        listener.onRemoveEntry("x-location1-x", new BrokerInfo("x-broker-id1-x", "x-broker1-x", "x-url1-x"));
-
-        Mockito.verify(this.mockBrokerPoller).stop();
-    }
-
-    @Test
-    public void testBrokerRegistryReplace() throws Exception {
-        this.prepareWebController();
-
-        BrokerRegistryListener listener = this.webController.getBrokerRegistryListener();
-        listener.onReplaceEntry("x-location1-x", new BrokerInfo("x-broker-id1-x", "x-broker1-x", "x-url1-x"),
-                new BrokerInfo("x-broker-id1-x", "x-broker1-x", "x-url1-x"));
-    }
-
-    @Test
     public void testAddBrokerWithAutoQueueDiscoveryOff() throws Exception {
         this.prepareWebController();
 
         this.webController.setAutoDiscoverQueues(false);
-        this.webController.addBroker("x-broker1-x", "x-location1-x");
+        this.webController.addBroker("x-broker1-x", "x-location1-x", "x-topology1-x");
 
         // NOTE: there should be some validation here.  However, this code also deserves some refactoring which will
         //       greatly simplify this test.
@@ -466,11 +357,11 @@ public class MonitorWebControllerTest {
 
     protected void prepareWebController() throws Exception {
         this.webController.setLog(this.mockLogger);
-        this.webController.setBrokerRegistry(this.mockBrokerRegistry);
-        this.webController.setQueueRegistry(this.mockQueueRegistry);
+        this.webController.setBrokerTopologyRegistry(this.mockBrokerTopologyRegistry);
         this.webController.setWebsocketBrokerStatsFeed(this.mockFeed);
         this.webController.setBrokerPollerFactory(this.mockBrokerPollerFactory);
         this.webController.setJmxActiveMQUtil(this.mockJmxActiveMQUtil);
+        this.webController.setScheduler(this.mockScheduler);
     }
 
     protected BrokerInfo matchBrokerInfo(final String brokerId, final String brokerName, final String brokerUrl) {

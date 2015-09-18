@@ -40,59 +40,83 @@ http://cxf.apache.org/schemas/jaxrs.xsd">
         <property name="threadNamePrefix" value="amq-monitor-executor" />
     </bean>
     
-    <bean id="brokerRegistry" class="com.amlinv.activemq.topo.registry.BrokerRegistry">
+    <bean id="brokerTopologyRegistry" class="com.amlinv.activemq.topo.registry.BrokerTopologyRegistry">
         <property name="listeners">
-            <list value-type="com.amlinv.registry.util.RegistryListener">
-                <value>#{monitorWebController.brokerRegistryListener}</value>
-            </list>
+            <array>
+                <value>#{topologyStatsCollectionManager.topologyRegistryListener}</value>
+                <value>#{topologyDestinationDiscoveryManager.topologyRegistryListener}</value>
+            </array>
         </property>
     </bean>
 
-    <bean id="queueRegistry" class="com.amlinv.activemq.topo.registry.DestinationRegistry">
-        <property name="listeners">
-            <list value-type="com.amlinv.registry.util.RegistryListener">
-                <ref bean="websocketBrokerStatsFeedListener" />
-                <ref bean="queueStatisticsRegistryListener" />
-            </list>
-        </property>
-    </bean>
-
-    <!--<bean id="queueRegistry" class="com.amlinv.activemq.registry.impl.DefaultDestinationRegistry" />-->
-    <!--<bean id="topicRegistry" class="com.amlinv.activemq.registry.impl.DefaultDestinationRegistry" />-->
-
+    <!--             -->
     <!-- PERSISTENCE -->
+    <!--             -->
     <bean id="monitorPersistence" class="com.amlinv.activemq.persistence.impl.JsonFileApplicationPersistenceAdapter"
           init-method="loadOnInit" destroy-method="saveOnDestory">
-        <constructor-arg value="${data.dir:.}/${monitor.persistence.file:monitor.json}" />
-        <property name="brokerRegistry" ref="brokerRegistry" />
-        <property name="queueRegistry" ref="queueRegistry" />
+        <property name="adapterV1" ref="monitorPersistenceV1" />
+        <property name="adapterV2" ref="monitorPersistenceV2" />
     </bean>
-
+    <bean id="monitorPersistenceV1"
+          class="com.amlinv.activemq.persistence.impl.JsonFileApplicationPersistenceAdapterV1">
+        <constructor-arg value="${data.dir:.}/${monitor.persistence.v1.file:monitor.json}" />
+        <property name="topologyRegistry" ref="brokerTopologyRegistry" />
+        <property name="topologyStateFactory" ref="topologyStateFactory" />
+    </bean>
+    <bean id="monitorPersistenceV2"
+          class="com.amlinv.activemq.persistence.impl.JsonFileApplicationPersistenceAdapterV2">
+        <constructor-arg value="${data.dir:.}/${monitor.persistence.v2.file:monitor.json.v2}" />
+        <property name="topologyRegistry" ref="brokerTopologyRegistry" />
+        <property name="topologyStateFactory" ref="topologyStateFactory" />
+    </bean>
 
     <bean id="monitorWebController" class="com.amlinv.activemq.monitor.web.MonitorWebController"
           init-method="init" destroy-method="shutdown">
         <property name="websocketBrokerStatsFeed" ref="websocketBrokerStatsFeed" />
-        <property name="brokerRegistry" ref="brokerRegistry" />
-        <property name="queueRegistry" ref="queueRegistry" />
+        <property name="brokerTopologyRegistry" ref="brokerTopologyRegistry" />
+        <property name="scheduler" ref="scheduler" />
+        <property name="topologyStateFactory" ref="topologyStateFactory" />
     </bean>
-
-    <!--                    -->
-    <!-- WEB SERVICES BEANS -->
-    <!--                    -->
-    <jaxrs:server id="services" address="/">
-        <jaxrs:serviceBeans>
-
-            <ref bean="monitorWebController" />
-
-        </jaxrs:serviceBeans>
-        <jaxrs:providers>
-            <bean class="org.codehaus.jackson.jaxrs.JacksonJsonProvider"/>
-        </jaxrs:providers>
-    </jaxrs:server>
 
     <!-- STATISTICS REGISTRY -->
     <bean id="queueStatisticsRegistry" class="com.amlinv.activemq.stats.QueueStatisticsRegistry" />
     <bean id="queueStatisticsRegistryListener" factory-bean="queueStatisticsRegistry" factory-method="getQueueRegistryListener" />
+
+    <!-- STATISTICS COLLECTION -->
+    <bean id="topologyStatsCollectionManager" class="com.amlinv.activemq.monitor.topo.stats.TopologyStatsCollectionManager">
+        <property name="brokerPollerManagerFactory" ref="brokerPollerManagerFactory" />
+        <property name="listenerFactory" ref="monitorWebControllerListenerFactory" />
+    </bean>
+
+    <bean id="monitorWebControllerListenerFactory"
+          class="com.amlinv.activemq.monitor.activemq.impl.FixedListenerActiveMQBrokerPollerListenerFactory">
+        <constructor-arg index="0" ref="websocketBrokerStatsFeed" />
+    </bean>
+
+    <bean id="brokerPollerManagerFactory" class="com.amlinv.activemq.stats.polling.impl.BrokerPollerManagerFactoryImpl">
+        <property name="jmxActiveMQUtil" ref="jmxActiveMQUtil" />
+        <property name="scheduler" ref="scheduler" />
+    </bean>
+    <bean id="jmxActiveMQUtil" class="com.amlinv.activemq.topo.jmxutil.polling.JmxActiveMQUtil2" />
+
+    <bean id="topologyDestinationDiscoveryManager"
+          class="com.amlinv.activemq.monitor.topo.stats.TopologyDestinationDiscoveryManager">
+        <property name="managerFactory" ref="brokerDiscoveryManagerFactory" />
+        <property name="discovererFactory" ref="discovererFactory" />
+        <property name="scheduledThreadPoolExecutor" ref="scheduledThreadPoolExecutor" />
+    </bean>
+    <bean id="brokerDiscoveryManagerFactory"
+          class="com.amlinv.activemq.monitor.topo.stats.impl.DefaultBrokerDestinationDiscovererFactory" />
+    <bean id="discovererFactory"
+          class="com.amlinv.activemq.monitor.topo.stats.impl.DefaultMBeanDestinationDiscovererFactory">
+        <property name="jmxActiveMQUtil" ref="jmxActiveMQUtil" />
+    </bean>
+    <bean id="topologyStateFactory" class="com.amlinv.activemq.monitor.impl.DefaultTopologyStateFactory" />
+
+    <bean id="scheduledThreadPoolExecutor" class="java.util.concurrent.ScheduledThreadPoolExecutor"
+          destroy-method="shutdown">
+        <constructor-arg index="0" value="32" />
+    </bean>
 
     <!-- MONITORING WEBSOCKET -->
     <bean id="monitorWebsocketRegistry" class="com.amlinv.activemq.monitor.web.MonitorWebsocketRegistry" />
@@ -111,4 +135,19 @@ http://cxf.apache.org/schemas/jaxrs.xsd">
         <property name="registry" ref="monitorWebsocketRegistry" />
         <property name="scheduler" ref="scheduler" />
     </bean>
+
+
+    <!--                    -->
+    <!-- WEB SERVICES BEANS -->
+    <!--                    -->
+    <jaxrs:server id="services" address="/">
+        <jaxrs:serviceBeans>
+
+            <ref bean="monitorWebController" />
+
+        </jaxrs:serviceBeans>
+        <jaxrs:providers>
+            <bean class="org.codehaus.jackson.jaxrs.JacksonJsonProvider"/>
+        </jaxrs:providers>
+    </jaxrs:server>
 </beans>

@@ -53,16 +53,15 @@
         </dependency>
         <dependency>
             <groupId>com.amlinv</groupId>
+            <artifactId>java-sched</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.amlinv</groupId>
             <artifactId>thread-utils</artifactId>
         </dependency>
         <dependency>
             <groupId>com.amlinv</groupId>
             <artifactId>log-utils</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>com.amlinv</groupId>
-            <artifactId>java-sched</artifactId>
         </dependency>
 
         <dependency>

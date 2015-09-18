@@ -14,17 +14,27 @@
  * limitations under the License.
  */
 
-package com.amlinv.activemq.persistence;
+package com.amlinv.activemq.monitor.impl;
 
+import com.amlinv.activemq.monitor.TopologyStateFactory;
 import com.amlinv.activemq.topo.registry.BrokerRegistry;
 import com.amlinv.activemq.topo.registry.DestinationRegistry;
-
-import java.io.IOException;
+import com.amlinv.activemq.topo.registry.model.TopologyInfo;
+import com.amlinv.activemq.topo.registry.model.TopologyState;
 
 /**
- * Created by art on 5/16/15.
+ * Created by art on 9/15/15.
  */
-public interface ApplicationPersistenceAdapter {
-    void load() throws IOException;
-    void save() throws IOException;
+public class DefaultTopologyStateFactory implements TopologyStateFactory {
+    @Override
+    public TopologyState createTopologyState(TopologyInfo topologyInfo) {
+        TopologyState result = new TopologyState();
+
+        result.setTopologyInfo(topologyInfo);
+        result.setBrokerRegistry(new BrokerRegistry());
+        result.setQueueRegistry(new DestinationRegistry());
+        result.setTopicRegistry(new DestinationRegistry());
+
+        return result;
+    }
 }

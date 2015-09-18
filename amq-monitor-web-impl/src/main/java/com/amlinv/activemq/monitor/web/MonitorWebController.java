@@ -16,25 +16,23 @@
 
 package com.amlinv.activemq.monitor.web;
 
-import com.amlinv.activemq.monitor.activemq.ActiveMQBrokerPoller;
+import com.amlinv.activemq.monitor.TopologyStateFactory;
 import com.amlinv.activemq.monitor.activemq.ActiveMQBrokerPollerFactory;
 import com.amlinv.activemq.monitor.activemq.impl.DefaultActiveMQBrokerPollerFactory;
-import com.amlinv.activemq.topo.discovery.MBeanDestinationDiscoverer;
 import com.amlinv.activemq.topo.discovery.MBeanDestinationDiscovererScheduler;
 import com.amlinv.activemq.topo.jmxutil.polling.JmxActiveMQUtil2;
 import com.amlinv.activemq.topo.registry.BrokerRegistry;
-import com.amlinv.activemq.topo.registry.BrokerRegistryListener;
+import com.amlinv.activemq.topo.registry.BrokerTopologyRegistry;
 import com.amlinv.activemq.topo.registry.DestinationRegistry;
 import com.amlinv.activemq.topo.registry.model.BrokerInfo;
-import com.amlinv.activemq.topo.registry.model.DestinationState;
-import com.amlinv.jmxutil.connection.MBeanAccessConnectionFactory;
-import com.amlinv.thread.util.DaemonThreadFactory;
+import com.amlinv.activemq.topo.registry.model.LocatedBrokerId;
+import com.amlinv.activemq.topo.registry.model.TopologyInfo;
+import com.amlinv.activemq.topo.registry.model.TopologyState;
+import com.amlinv.javasched.Scheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.ws.rs.*;
@@ -46,34 +44,34 @@ import javax.ws.rs.core.Response;
  */
 @Path("/monitor")
 public class MonitorWebController {
+    public static final String DEFAULT_TOPOLOGY_NAME = "unnamed";
+
     private static final Logger DEFAULT_LOGGER = LoggerFactory.getLogger(MonitorWebController.class);
     private Logger log = DEFAULT_LOGGER;
 
-    private final MyBrokerRegistryListener myBrokerRegistryListener;
-
-    private BrokerRegistry brokerRegistry;
-    private DestinationRegistry queueRegistry;
-    private DestinationRegistry topicRegistry;
-
-    private Map<String, ActiveMQBrokerPoller> brokerPollerMap;
     private Map<String, MBeanDestinationDiscovererScheduler> queueDiscoverers;
     private AtomicBoolean started = new AtomicBoolean(false);
-    private ActiveMQBrokerPollerFactory brokerPollerFactory = new DefaultActiveMQBrokerPollerFactory();
-    private JmxActiveMQUtil2 jmxActiveMQUtil = new JmxActiveMQUtil2();
 
     private boolean autoStart = true;
     private boolean autoDiscoverQueues = true;
 
-    // TODO: convert to use JavaScheduler
-    private ScheduledExecutorService discovererExecutorService =
-            new ScheduledThreadPoolExecutor(5, new DaemonThreadFactory("discoverer-polling-thread-"));
 
+    ///// REQUIRED INJECTIONS
     private MonitorWebsocketBrokerStatsFeed websocketBrokerStatsFeed;
+    private Scheduler scheduler;
+    private BrokerTopologyRegistry brokerTopologyRegistry;
+    private TopologyStateFactory topologyStateFactory;
 
+
+    ///// OPTIONAL INJECTIONS
+    private ActiveMQBrokerPollerFactory brokerPollerFactory = new DefaultActiveMQBrokerPollerFactory();
+    private JmxActiveMQUtil2 jmxActiveMQUtil = new JmxActiveMQUtil2();
+
+
+    /////
+    ///// PUBLIC INTERFACE
+    /////
     public MonitorWebController() {
-        this.myBrokerRegistryListener = new MyBrokerRegistryListener();
-
-        this.brokerPollerMap = new TreeMap<>();
         this.queueDiscoverers = new HashMap<>();
     }
 
@@ -85,22 +83,6 @@ public class MonitorWebController {
         this.log = log;
     }
 
-    public BrokerRegistry getBrokerRegistry() {
-        return brokerRegistry;
-    }
-
-    public void setBrokerRegistry(BrokerRegistry brokerRegistry) {
-        this.brokerRegistry = brokerRegistry;
-    }
-
-    public DestinationRegistry getQueueRegistry() {
-        return queueRegistry;
-    }
-
-    public void setQueueRegistry(DestinationRegistry queueRegistry) {
-        this.queueRegistry = queueRegistry;
-    }
-
     public MonitorWebsocketBrokerStatsFeed getWebsocketBrokerStatsFeed() {
         return websocketBrokerStatsFeed;
     }
@@ -109,8 +91,20 @@ public class MonitorWebController {
         this.websocketBrokerStatsFeed = websocketBrokerStatsFeed;
     }
 
-    public MyBrokerRegistryListener getBrokerRegistryListener() {
-        return myBrokerRegistryListener;
+    public BrokerTopologyRegistry getBrokerTopologyRegistry() {
+        return brokerTopologyRegistry;
+    }
+
+    public void setBrokerTopologyRegistry(BrokerTopologyRegistry brokerTopologyRegistry) {
+        this.brokerTopologyRegistry = brokerTopologyRegistry;
+    }
+
+    public TopologyStateFactory getTopologyStateFactory() {
+        return topologyStateFactory;
+    }
+
+    public void setTopologyStateFactory(TopologyStateFactory topologyStateFactory) {
+        this.topologyStateFactory = topologyStateFactory;
     }
 
     public boolean isAutoStart() {
@@ -145,12 +139,21 @@ public class MonitorWebController {
         this.jmxActiveMQUtil = jmxActiveMQUtil;
     }
 
+    public Scheduler getScheduler() {
+        return scheduler;
+    }
+
+    public void setScheduler(Scheduler scheduler) {
+        this.scheduler = scheduler;
+    }
+
     public void init () {
         log.info("Initializing monitor web controller");
-        if ( this.autoStart ) {
-            log.info("Starting monitoring now");
-            this.startMonitoring();
-        }
+        // TBD: clean this up.  Either re-enable manual start/stop, or elminate this code
+//        if ( this.autoStart ) {
+//            log.info("Starting monitoring now");
+//            this.startMonitoring();
+//        }
     }
 
     // TBD: make sure nothing new gets added during shutdown
@@ -160,41 +163,77 @@ public class MonitorWebController {
                 oneDiscovererScheduler.stop();
             }
         }
+    }
 
-        synchronized ( this.brokerPollerMap ) {
-            for ( ActiveMQBrokerPoller onePoller : this.brokerPollerMap.values() ) {
-                onePoller.stop();
-            }
+    @GET
+    @Path("/topologies")
+    public List<TopologyInfo> listTopologies() {
+        log.debug("listTopologies");
+
+        List<TopologyInfo> result = new LinkedList<>();
+
+        for (TopologyState topologyState : this.brokerTopologyRegistry.values()) {
+            result.add(topologyState.getTopologyInfo());
         }
 
-        this.discovererExecutorService.shutdown();
+        return result;
+    }
+
+    @PUT
+    @Path("/topology")
+    public String addTopology (@FormParam("topology") String topology) {
+        return this.performTopologyAdd(topology);
+    }
+
+    @DELETE
+    @Path("/topology")
+    public String removeTopology(@FormParam("topology") String topology) {
+        return this.performTopologyRemoval(topology);
     }
 
     @GET
     @Path("/brokers")
-    public List<BrokerInfo> listMonitoredBrokers() {
+    public List<BrokerInfo> listMonitoredBrokers(@DefaultValue(DEFAULT_TOPOLOGY_NAME)
+                                                 @HeaderParam("topology") String topology) {
         log.debug("listMonitoredBrokers");
 
-        return new LinkedList<BrokerInfo>(this.brokerRegistry.values());
+        List<BrokerInfo> result = new LinkedList<BrokerInfo>();
+
+        TopologyState topologyState = this.brokerTopologyRegistry.get(topology);
+
+        if (topologyState != null) {
+            result.addAll(topologyState.getBrokerRegistry().values());
+        }
+
+        return result;
     }
 
     @PUT
     @Path("/broker")
     @Produces({ "application/json", "application/xml", "text/plain" })
     @Consumes({ "application/json", "application/xml", "application/x-www-form-urlencoded" })
-    public String addBroker (@FormParam("brokerName") String brokerName, @FormParam("address") String address)
+    public String addBroker (@FormParam("brokerName") String brokerName,
+                             @FormParam("address") String address,
+                             @DefaultValue(DEFAULT_TOPOLOGY_NAME) @FormParam("topology") String topology)
             throws Exception {
 
-        return prepareBrokerPoller(brokerName, address);
+        //
+        // Automatically create the default topology, if needed.
+        //
+        this.checkAutoCreateDefaultTopology(topology);
+
+        return this.performBrokerAdd(address, brokerName, topology);
     }
 
     @DELETE
     @Path("/broker")
     @Produces("text/plain")
-    public String removeBrokerForm (@FormParam("address") @QueryParam("address") String address) {
+    public String removeBrokerForm (@FormParam("brokerName") String brokerName,
+                                    @FormParam("address") @QueryParam("address") String address,
+                                    @DefaultValue(DEFAULT_TOPOLOGY_NAME) @FormParam("topology") String topology) {
         String result;
 
-        result = performBrokerRemoval(address);
+        result = performBrokerRemoval(address, brokerName, topology);
 
         return  result;
     }
@@ -205,21 +244,11 @@ public class MonitorWebController {
     @Produces({ MediaType.APPLICATION_JSON })
     public Response addQueue (@FormParam("queueName") String queueName,
                               @DefaultValue("*") @FormParam("brokerName") String queryBroker,
-                              @DefaultValue("*") @FormParam("address") String address) throws Exception {
+                              @DefaultValue("*") @FormParam("address") String address,
+                              @DefaultValue(DEFAULT_TOPOLOGY_NAME) @FormParam("topology") String topology
+    ) throws Exception {
 
-        Set<String> additionalQueueNames;
-        if ( queueName.endsWith("*") ) {
-            additionalQueueNames = queryQueueNames(address, queryBroker, queueName);
-        } else {
-            additionalQueueNames = new TreeSet<>();
-            additionalQueueNames.add(queueName);
-        }
-
-        for ( String oneAdditionalQueueName : additionalQueueNames ) {
-            performQueueAdd(oneAdditionalQueueName);
-        }
-
-        Response response = Response.ok(additionalQueueNames).build();
+        Response response = Response.ok("ignored: only auto-discovery of queues supported at this time").build();
 
         return  response;
     }
@@ -229,34 +258,26 @@ public class MonitorWebController {
     @Produces({ MediaType.APPLICATION_JSON })
     public Response removeQueue (@FormParam("queueName") String queueName,
                             @DefaultValue("*") @FormParam("brokerName") String queryBroker,
-                            @DefaultValue("*") @FormParam("address") String address) throws Exception {
+                            @DefaultValue("*") @FormParam("address") String address,
+                            @DefaultValue(DEFAULT_TOPOLOGY_NAME) @FormParam("topology") String topology
+    ) throws Exception {
 
-        Set<String> removeQueueNames;
-        if ( queueName.endsWith("*") ) {
-            removeQueueNames = queryQueueNames(address, queryBroker, queueName);
-        } else {
-            removeQueueNames = new TreeSet<>();
-            removeQueueNames.add(queueName);
-        }
-
-        for ( String rmQueueName : removeQueueNames ) {
-            this.queueRegistry.remove(rmQueueName);
-        }
-
-        Response response = Response.ok(removeQueueNames).build();
+        Response response = Response.ok("ignored: only auto-discovery of queue supported at this time").build();
 
         return  response;
     }
 
+    /**
+     * This method is a no-op as monitoring now always automatically starts.  This may change back in the future.
+     *
+     * @return simple text indication of the result
+     * @throws Exception on failure to start monitoring
+     */
     @GET
     @Path("/start")
     @Produces("text/plain")
     public String requestStartMonitoring() throws Exception {
-        String result;
-
-        result = startMonitoring();
-
-        return  result;
+        return  "no-op";
     }
 
     @GET
@@ -266,194 +287,104 @@ public class MonitorWebController {
         return  this.jmxActiveMQUtil.queryBrokerNames(address);
     }
 
-    protected String performBrokerRemoval(String address) {
-        String result;
-        ActiveMQBrokerPoller removedPoller;
-
-        // TBD222: stop using the address as the key since more than one broker may live at an address
-        this.brokerRegistry.remove(address);
-
-        // TBD: both brokerPollerMap and locations should be performed in a single atomic update, not separate atomic updates
-        // TBD: one address can have more than one broker
-        synchronized ( this.brokerPollerMap ) {
-            removedPoller = this.brokerPollerMap.remove(address);
+    protected void checkAutoCreateDefaultTopology(String topology) {
+        //
+        // Create the default topology, if it doesn't yet exist.
+        //
+        if (DEFAULT_TOPOLOGY_NAME.equals(topology)) {
+            this.performTopologyAdd(DEFAULT_TOPOLOGY_NAME);
         }
+    }
 
-        if ( removedPoller != null ) {
-            result = "removed";
-            removedPoller.stop();
+    protected String performTopologyAdd(String topologyName) {
+        TopologyInfo info =
+                new TopologyInfo(topologyName, Collections.EMPTY_LIST, Collections.EMPTY_LIST, Collections.EMPTY_LIST);
+
+        TopologyState topologyState = this.topologyStateFactory.createTopologyState(info);
+        topologyState.setBrokerRegistry(new BrokerRegistry());
+        topologyState.setQueueRegistry(new DestinationRegistry());
+        topologyState.setTopicRegistry(new DestinationRegistry());
+        topologyState.setTopologyInfo(info);
+
+        TopologyState existing = this.brokerTopologyRegistry.putIfAbsent(topologyName, topologyState);
+
+        log.debug("add of topology complete: topologyName={}; alreadyExistsInd={}", topologyName, (existing != null));
+
+        if (existing != null)
+            return "already exists";
+        else
+            return "added";
+    }
+
+    protected String performTopologyRemoval(String topology) {
+        TopologyState topologyState = this.brokerTopologyRegistry.remove(topology);
+
+        log.debug("removal of topology complete: topologyName={}; removedInd={}", topology, (topologyState != null));
+
+        if (topologyState != null) {
+            return "removed";
         } else {
-            result = "not found";
+            return "not found";
         }
+    }
+
+    protected String performBrokerAdd(String address, String brokerName, String topology) throws Exception {
+        String result;
+
+        if (brokerName.equals("*")) {
+            brokerName = this.lookupBrokerName(address);
+
+            log.debug("broker lookup result: address={}; brokerName={}", address, brokerName);
+        }
+
+        TopologyState topologyState = this.brokerTopologyRegistry.get(topology);
+        if (topologyState != null) {
+            LocatedBrokerId locatedBrokerId = new LocatedBrokerId(address, brokerName);
+
+            BrokerInfo brokerInfo = new BrokerInfo("unknown-broker-id", brokerName, "unknown-broker-url");
+            BrokerInfo existing = topologyState.getBrokerRegistry().putIfAbsent(locatedBrokerId, brokerInfo);
+
+            if (existing == null) {
+                result = "added";
+            } else {
+                result = "broker already exists";
+            }
+        } else {
+            result = "topology not found";
+        }
+
         return result;
     }
 
-    /**
-     * Start monitoring now.
-     *
-     * @return text describing the result.
-     */
-    protected String startMonitoring() {
+    protected String performBrokerRemoval(String address, String brokerName, String topology) {
         String result;
-        if ( ! this.started.getAndSet(true) ) {
-            synchronized ( this.brokerPollerMap ) {
-                for (ActiveMQBrokerPoller onePoller : this.brokerPollerMap.values()) {
-                    onePoller.start();
-                }
-            }
 
-            result = "started";
+        TopologyState topologyState = this.brokerTopologyRegistry.get(topology);
+        if (topologyState != null) {
+            LocatedBrokerId locatedBrokerId = new LocatedBrokerId(address, brokerName);
+
+            BrokerInfo removedInfo = topologyState.getBrokerRegistry().remove(locatedBrokerId);
+
+            if (removedInfo != null) {
+                result = "removed";
+            } else {
+                result = "broker not found";
+            }
         } else {
-            result = "already running";
+            result = "topology not found";
         }
+
         return result;
     }
 
-    protected void performQueueAdd(String queueName) {
-        this.queueRegistry.putIfAbsent(queueName, new DestinationState(queueName));
-    }
-
-    /**
-     * Prepare polling for the named broker at the given polling address.
-     *
-     * @param brokerName
-     * @param address
-     * @return
-     * @throws Exception
-     */
-    protected String prepareBrokerPoller(String brokerName, String address) throws Exception {
-        MBeanAccessConnectionFactory mBeanAccessConnectionFactory =
-                this.jmxActiveMQUtil.getLocationConnectionFactory(address);
-
-        if ( brokerName.equals("*") ) {
-            String[] brokersAtLocation = this.jmxActiveMQUtil.queryBrokerNames(address);
-            if ( brokersAtLocation == null ) {
-                throw new Exception("unable to locate broker at " + address);
-            } else if ( brokersAtLocation.length != 1 ) {
-                throw new Exception("found more than one broker at " + address + "; count=" + brokersAtLocation.length);
-            } else {
-                brokerName = brokersAtLocation[0];
-            }
+    protected String lookupBrokerName(String address) throws Exception {
+        String[] brokersAtLocation = this.jmxActiveMQUtil.queryBrokerNames(address);
+        if ( brokersAtLocation == null ) {
+            throw new Exception("unable to locate broker at " + address);
+        } else if ( brokersAtLocation.length != 1 ) {
+            throw new Exception("number of brokers at " + address + " is not 1: count=" + brokersAtLocation.length);
         }
 
-        this.brokerRegistry.put(address, new BrokerInfo("unknown-broker-id", brokerName, "unknown-broker-url"));
-
-        ActiveMQBrokerPoller brokerPoller =
-                this.brokerPollerFactory.createPoller(brokerName, mBeanAccessConnectionFactory,
-                        this.websocketBrokerStatsFeed);
-
-        brokerPoller.setQueueRegistry(this.queueRegistry);
-        brokerPoller.setTopicRegistry(this.topicRegistry);
-
-        // TBD: one automic update for brokerPollerMap and locations (is there an echo in here?)
-        synchronized ( this.brokerPollerMap ) {
-            if ( ! this.brokerPollerMap.containsKey(address) ) {
-                this.brokerPollerMap.put(address, brokerPoller);
-            } else {
-                log.info("ignoring duplicate add of broker address {}", address);
-                return "already exists";
-            }
-        }
-
-        // No need to synchronize to avoid races here; the poller will not start if either already started, or already
-        //  stopped.
-        if ( this.started.get() ) {
-            brokerPoller.start();
-        }
-
-        // Add auto-discovery of Queues for this broker, if enabled
-        if ( this.autoDiscoverQueues ) {
-            this.prepareBrokerQueueDiscoverer(brokerName, address, mBeanAccessConnectionFactory);
-        }
-
-        return address + " = " + brokerName;
-    }
-
-    protected void prepareBrokerQueueDiscoverer (String brokerName, String address,
-                                                 MBeanAccessConnectionFactory connectionFactory) {
-
-        MBeanDestinationDiscoverer discoverer = new MBeanDestinationDiscoverer("Queue", address);
-        discoverer.setmBeanAccessConnectionFactory(connectionFactory);
-        discoverer.setBrokerName(brokerName);
-        discoverer.setRegistry(this.queueRegistry);
-
-        MBeanDestinationDiscovererScheduler scheduler = new MBeanDestinationDiscovererScheduler();
-
-        scheduler.setExecutor(this.discovererExecutorService);
-        scheduler.setDiscoverer(discoverer);
-
-        scheduler.start();
-
-        synchronized ( this.queueDiscoverers ) {
-            this.queueDiscoverers.put(address, scheduler);
-        }
-    }
-
-    // TBD: don't create mutliple JMX connections when performing multiple queries (JMX connector pool?)
-    protected Set<String> queryQueueNames (String location, String brokerName, String queueNamePattern) throws Exception {
-        Set<String> result = new TreeSet<>();
-
-        if ( location.equals("*") ) {
-            // TBD222: stop using address (aka location) as the registry key
-            for ( String oneLocation : this.brokerRegistry.keys() ) {
-                result.addAll(this.queryQueueNames(oneLocation, brokerName, queueNamePattern)); // RECURSION
-            }
-        } else {
-            if ( brokerName.equals("*") ) {
-                String[] brokerNames = this.queryBrokerNames(location);
-
-                for ( String oneBrokerName : brokerNames ) {
-                    result.addAll(this.queryQueueNames(location, oneBrokerName, queueNamePattern)); // RECURSION
-                }
-            } else {
-                String[] names = this.jmxActiveMQUtil.queryQueueNames(location, brokerName, queueNamePattern);
-                result.addAll(Arrays.asList(names));
-            }
-        }
-
-        return  result;
-    }
-
-    /**
-     * Listener for events representing a change in the list of monitored brokers.
-     */
-    protected class MyBrokerRegistryListener implements BrokerRegistryListener {
-        /**
-         * New broker was added to the registry; prepare polling of the broker.
-         *
-         * @param putKey key of the entry that was added to the registry.
-         * @param putValue value of the entry that was added to the registry.
-         */
-        @Override
-        public void onPutEntry(String putKey, BrokerInfo putValue) {
-            try {
-                prepareBrokerPoller(putValue.getBrokerName(), putKey);
-            } catch (Exception exc) {
-                log.error("Failed to prepare polling for broker: brokerName={}; address={}", putValue.getBrokerName(),
-                        putKey, exc);
-            }
-        }
-
-        /**
-         * An existing broker was removed from the registry; stop polling the broker.
-         *
-         * @param removeKey key of the entry that was removed.
-         * @param removeValue value of the entry that was removed.
-         */
-        @Override
-        public void onRemoveEntry(String removeKey, BrokerInfo removeValue) {
-            performBrokerRemoval(removeKey);
-        }
-
-        /**
-         * An existing broker was modified in the registry; nothing to do here.
-         *
-         * @param replaceKey
-         * @param oldValue
-         * @param newValue
-         */
-        @Override
-        public void onReplaceEntry(String replaceKey, BrokerInfo oldValue, BrokerInfo newValue) {
-        }
+        return brokersAtLocation[0];
     }
 }

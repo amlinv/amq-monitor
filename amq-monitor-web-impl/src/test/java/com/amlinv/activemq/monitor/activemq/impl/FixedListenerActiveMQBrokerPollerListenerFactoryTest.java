@@ -18,8 +18,6 @@ package com.amlinv.activemq.monitor.activemq.impl;
 
 import com.amlinv.activemq.monitor.activemq.ActiveMQBrokerPoller;
 import com.amlinv.activemq.monitor.activemq.ActiveMQBrokerPollerListener;
-import com.amlinv.javasched.Scheduler;
-import com.amlinv.jmxutil.connection.MBeanAccessConnectionFactory;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -27,31 +25,27 @@ import org.mockito.Mockito;
 import static org.junit.Assert.*;
 
 /**
- * Created by art on 9/2/15.
+ * Validate operation o the FixedListenerActiveMQBrokerPollerListenerFactory.
+ *
+ * Created by art on 9/10/15.
  */
-public class DefaultActiveMQBrokerPollerFactoryTest {
+public class FixedListenerActiveMQBrokerPollerListenerFactoryTest {
 
-    private DefaultActiveMQBrokerPollerFactory factory;
+    private FixedListenerActiveMQBrokerPollerListenerFactory factory;
 
-    private MBeanAccessConnectionFactory mockMBeanAccessConnectionFactory;
     private ActiveMQBrokerPollerListener mockListener;
-    private Scheduler mockScheduler;
 
     @Before
     public void setupTest() throws Exception {
-        this.factory = new DefaultActiveMQBrokerPollerFactory();
-
-        this.mockMBeanAccessConnectionFactory = Mockito.mock(MBeanAccessConnectionFactory.class);
         this.mockListener = Mockito.mock(ActiveMQBrokerPollerListener.class);
-        this.mockScheduler = Mockito.mock(Scheduler.class);
+
+        this.factory = new FixedListenerActiveMQBrokerPollerListenerFactory(this.mockListener);
     }
 
     @Test
-    public void testCreatePoller() throws Exception {
-        ActiveMQBrokerPoller result =
-                this.factory.createPoller("x-broker-x", this.mockMBeanAccessConnectionFactory, this.mockListener,
-                        mockScheduler);
-
-        assertNotNull(result);
+    public void testCreateListener() throws Exception {
+        assertSame(this.mockListener, this.factory.createListener("x-topology1-x", "x-broker1-x", "x-location1-x"));
+        assertSame(this.mockListener, this.factory.createListener("x-topology2-x", "x-broker2-x", "x-location2-x"));
+        assertSame(this.mockListener, this.factory.createListener("x-topology3-x", "x-broker3-x", "x-location3-x"));
     }
 }

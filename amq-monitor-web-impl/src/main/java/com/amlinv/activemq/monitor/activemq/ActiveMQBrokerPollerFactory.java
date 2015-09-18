@@ -16,6 +16,7 @@
 
 package com.amlinv.activemq.monitor.activemq;
 
+import com.amlinv.javasched.Scheduler;
 import com.amlinv.jmxutil.connection.MBeanAccessConnectionFactory;
 
 /**
@@ -23,5 +24,5 @@ import com.amlinv.jmxutil.connection.MBeanAccessConnectionFactory;
  */
 public interface ActiveMQBrokerPollerFactory {
     ActiveMQBrokerPoller createPoller(String brokerName, MBeanAccessConnectionFactory mBeanAccessConnectionFactory,
-                                      ActiveMQBrokerPollerListener listener);
+                                      ActiveMQBrokerPollerListener listener, Scheduler scheduler);
 }

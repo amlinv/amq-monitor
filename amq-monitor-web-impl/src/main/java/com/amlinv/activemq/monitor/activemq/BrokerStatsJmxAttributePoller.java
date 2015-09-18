@@ -17,6 +17,7 @@
 package com.amlinv.activemq.monitor.activemq;
 
 import com.amlinv.activemq.monitor.model.BrokerStatsPackage;
+import com.amlinv.javasched.Scheduler;
 import com.amlinv.jmxutil.polling.JmxAttributePoller;
 
 import java.util.List;
@@ -27,8 +28,12 @@ import java.util.List;
 public class BrokerStatsJmxAttributePoller extends JmxAttributePoller {
     private BrokerStatsPackage resultStorage;
 
-    public BrokerStatsJmxAttributePoller(List<Object> polledObjects, BrokerStatsPackage resultStorage) {
+    public BrokerStatsJmxAttributePoller(List<Object> polledObjects, BrokerStatsPackage resultStorage,
+                                         Scheduler scheduler) {
+
         super(polledObjects);
+
+        this.setScheduler(scheduler);
 
         this.resultStorage = resultStorage;
     }

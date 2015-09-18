@@ -16,21 +16,23 @@
 
 package com.amlinv.activemq.monitor.activemq.impl;
 
-import com.amlinv.activemq.monitor.activemq.ActiveMQBrokerPoller;
-import com.amlinv.activemq.monitor.activemq.ActiveMQBrokerPollerFactory;
 import com.amlinv.activemq.monitor.activemq.ActiveMQBrokerPollerListener;
-import com.amlinv.javasched.Scheduler;
-import com.amlinv.jmxutil.connection.MBeanAccessConnectionFactory;
+import com.amlinv.activemq.monitor.activemq.ActiveMQBrokerPollerListenerFactory;
 
 /**
- * Created by art on 9/2/15.
+ * Factory of ActiveMQBrokerPoller listeners that always returns the same listener.
+ *
+ * Created by art on 9/10/15.
  */
-public class DefaultActiveMQBrokerPollerFactory implements ActiveMQBrokerPollerFactory {
-    @Override
-    public ActiveMQBrokerPoller createPoller(String brokerName,
-                                             MBeanAccessConnectionFactory mBeanAccessConnectionFactory,
-                                             ActiveMQBrokerPollerListener listener, Scheduler scheduler) {
+public class FixedListenerActiveMQBrokerPollerListenerFactory implements ActiveMQBrokerPollerListenerFactory {
+    private final ActiveMQBrokerPollerListener listener;
 
-        return new ActiveMQBrokerPoller(brokerName, mBeanAccessConnectionFactory, listener, scheduler);
+    public FixedListenerActiveMQBrokerPollerListenerFactory(ActiveMQBrokerPollerListener listener) {
+        this.listener = listener;
+    }
+
+    @Override
+    public ActiveMQBrokerPollerListener createListener(String topologyName, String brokerName, String brokerLocation) {
+        return this.listener;
     }
 }

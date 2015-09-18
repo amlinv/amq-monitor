@@ -23,6 +23,7 @@ import com.amlinv.activemq.stats.logging.BrokerStatsLogger;
 import com.amlinv.activemq.topo.registry.DestinationRegistry;
 import com.amlinv.activemq.topo.registry.DestinationRegistryListener;
 import com.amlinv.activemq.topo.registry.model.DestinationState;
+import com.amlinv.javasched.Scheduler;
 import com.amlinv.jmxutil.connection.MBeanAccessConnectionFactory;
 import com.amlinv.activemq.monitor.model.ActiveMQBrokerStats;
 import com.amlinv.activemq.monitor.model.ActiveMQQueueJmxStats;
@@ -35,6 +36,7 @@ import java.io.IOException;
 import java.util.*;
 
 /**
+ * Schedule-based poller of data from an ActiveMQ broker.
  *
  * TBD: use immutable copies of the data
  * Created by art on 4/2/15.
@@ -44,28 +46,33 @@ public class ActiveMQBrokerPoller {
 
     public static final long DEFAULT_MIN_TIME_BETWEEN_STATS_LOG = 60000L;
 
+    ///// REQUIRED INJECTIONS:
     private final String brokerName;
-
-    private Timer scheduler = new Timer();
-
+    private Scheduler scheduler;
     private DestinationRegistry queueRegistry;
     private DestinationRegistry topicRegistry;
+    private final MBeanAccessConnectionFactory mBeanAccessConnectionFactory;
+    private final ActiveMQBrokerPollerListener listener;
 
+
+    ///// OPTIONAL INJECTIONS:
+    private Timer timer = new Timer();
     private MyQueueRegistryListener queueRegistryListener = new MyQueueRegistryListener();
     private BrokerStatsLogger brokerStatsLogger = new BrokerStatsLogger();
-
     private StatsClock statsClock = new SystemStatsClock();
     private BrokerStatsJmxAttributePollerFactory jmxPollerFactory = new DefaultBrokerStatsJmxAttributePollerFactory();
-
     private Logger log = DEFAULT_LOGGER;
 
+
+    ///// TUNNABLES
     private long pollingInterval = 3000;
     private long minTimeBetweenStatsLog = DEFAULT_MIN_TIME_BETWEEN_STATS_LOG;
+
+
+    ///// RUNTIME STATE
     private long lastStatsLogUpdateTimestamp = 0;
     private final Object statsLogSync = new Object();
 
-    private final MBeanAccessConnectionFactory mBeanAccessConnectionFactory;
-    private final ActiveMQBrokerPollerListener listener;
     private BrokerStatsJmxAttributePoller poller;
 
     private RepeatLogMessageSuppressor logThrottlePollFailure = new RepeatLogMessageSuppressor();
@@ -82,13 +89,15 @@ public class ActiveMQBrokerPoller {
      * @param brokerName
      * @param mBeanAccessConnectionFactory
      * @param listener
+     * @param scheduler
      */
     public ActiveMQBrokerPoller(String brokerName, MBeanAccessConnectionFactory mBeanAccessConnectionFactory,
-                                ActiveMQBrokerPollerListener listener) {
+                                ActiveMQBrokerPollerListener listener, Scheduler scheduler) {
 
         this.brokerName = brokerName;
         this.mBeanAccessConnectionFactory = mBeanAccessConnectionFactory;
         this.listener = listener;
+        this.scheduler = scheduler;
     }
 
     public DestinationRegistry getQueueRegistry() {
@@ -115,12 +124,12 @@ public class ActiveMQBrokerPoller {
         this.brokerStatsLogger = brokerStatsLogger;
     }
 
-    public Timer getScheduler() {
-        return scheduler;
+    public Timer getTimer() {
+        return timer;
     }
 
-    public void setScheduler(Timer scheduler) {
-        this.scheduler = scheduler;
+    public void setTimer(Timer timer) {
+        this.timer = timer;
     }
 
     public StatsClock getStatsClock() {
@@ -164,11 +173,11 @@ public class ActiveMQBrokerPoller {
         }
 
         PollerTask pollerTask = new PollerTask();
-        this.scheduler.schedule(pollerTask, 0, pollingInterval);
+        this.timer.schedule(pollerTask, 0, pollingInterval);
     }
 
     public void stop () {
-        this.scheduler.cancel();
+        this.timer.cancel();
 
         this.queueRegistry.removeListener(this.queueRegistryListener);
 
@@ -219,7 +228,9 @@ public class ActiveMQBrokerPoller {
         BrokerStatsPackage resultStorage = this.preparePolledResultStorage();
         List<Object> polled = this.preparePolledObjects(resultStorage);
 
-        BrokerStatsJmxAttributePoller newPoller = this.jmxPollerFactory.createPoller(polled, resultStorage);
+        BrokerStatsJmxAttributePoller newPoller =
+                this.jmxPollerFactory.createPoller(polled, resultStorage, this.scheduler);
+
         newPoller.setmBeanAccessConnectionFactory(this.mBeanAccessConnectionFactory);
 
         return  newPoller;

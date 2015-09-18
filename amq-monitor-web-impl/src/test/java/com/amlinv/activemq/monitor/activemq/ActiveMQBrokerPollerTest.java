@@ -24,6 +24,7 @@ import com.amlinv.activemq.stats.logging.BrokerStatsLogger;
 import com.amlinv.activemq.topo.registry.DestinationRegistry;
 import com.amlinv.activemq.topo.registry.DestinationRegistryListener;
 import com.amlinv.activemq.topo.registry.model.DestinationState;
+import com.amlinv.javasched.Scheduler;
 import com.amlinv.jmxutil.connection.MBeanAccessConnectionFactory;
 import org.junit.Before;
 import org.junit.Test;
@@ -45,7 +46,6 @@ import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.Assert.*;
 
@@ -64,6 +64,7 @@ public class ActiveMQBrokerPollerTest {
     private DestinationRegistry mockTopicRegistry;
     private BrokerStatsLogger mockBrokerStatsLogger;
     private Timer mockTimer;
+    private Scheduler mockScheduler;
     private StatsClock mockStatsClock;
     private Logger mockLogger;
     private BrokerStatsJmxAttributePollerFactory mockJmxPollerFactory;
@@ -79,6 +80,7 @@ public class ActiveMQBrokerPollerTest {
         this.mockTopicRegistry = Mockito.mock(DestinationRegistry.class);
         this.mockBrokerStatsLogger = Mockito.mock(BrokerStatsLogger.class);
         this.mockTimer = Mockito.mock(Timer.class);
+        this.mockScheduler = Mockito.mock(Scheduler.class);
         this.mockStatsClock = Mockito.mock(StatsClock.class);
         this.mockLogger = Mockito.mock(Logger.class);
         this.mockJmxPollerFactory = Mockito.mock(BrokerStatsJmxAttributePollerFactory.class);
@@ -86,7 +88,8 @@ public class ActiveMQBrokerPollerTest {
 
         this.jmxPollers = new LinkedList<>();
 
-        this.poller = new ActiveMQBrokerPoller("x-broker-x", this.mBeanAccessConnectionFactory, this.listener);
+        this.poller = new ActiveMQBrokerPoller("x-broker-x", this.mBeanAccessConnectionFactory, this.listener,
+                this.mockScheduler);
     }
 
     @Test
@@ -116,11 +119,11 @@ public class ActiveMQBrokerPollerTest {
 
     @Test
     public void testGetSetScheduler() throws Exception {
-        assertNotNull(this.poller.getScheduler());
-        assertNotSame(this.mockTimer, this.poller.getScheduler());
+        assertNotNull(this.poller.getTimer());
+        assertNotSame(this.mockTimer, this.poller.getTimer());
 
-        this.poller.setScheduler(this.mockTimer);
-        assertSame(this.mockTimer, this.poller.getScheduler());
+        this.poller.setTimer(this.mockTimer);
+        assertSame(this.mockTimer, this.poller.getTimer());
     }
 
     @Test
@@ -398,7 +401,7 @@ public class ActiveMQBrokerPollerTest {
         // Setup a mock jmx poller on creation of a poller with the added queue
         BrokerStatsJmxAttributePoller mockJmxPoller = Mockito.mock(BrokerStatsJmxAttributePoller.class);
         Mockito.when(this.mockJmxPollerFactory.createPoller(this.matchPolledQueues("x-queue-x"),
-                Mockito.any(BrokerStatsPackage.class))).thenReturn(mockJmxPoller);
+                Mockito.any(BrokerStatsPackage.class), Mockito.same(this.mockScheduler))).thenReturn(mockJmxPoller);
 
 
         // Registry now contains the queue "x-queue-x" when asked
@@ -434,7 +437,7 @@ public class ActiveMQBrokerPollerTest {
         // Setup a mock jmx poller on creation of a poller with the added queue
         BrokerStatsJmxAttributePoller mockJmxPoller = Mockito.mock(BrokerStatsJmxAttributePoller.class);
         Mockito.when(this.mockJmxPollerFactory.createPoller(this.matchPolledQueues("x-queue1-x"),
-                Mockito.any(BrokerStatsPackage.class))).thenReturn(mockJmxPoller);
+                Mockito.any(BrokerStatsPackage.class), Mockito.same(this.mockScheduler))).thenReturn(mockJmxPoller);
 
 
         // Registry now only contains the queue "x-queue-x" when asked
@@ -518,7 +521,7 @@ public class ActiveMQBrokerPollerTest {
 
 
     protected void preparePoller() throws Exception {
-        this.poller.setScheduler(this.mockTimer);
+        this.poller.setTimer(this.mockTimer);
         this.poller.setBrokerStatsLogger(this.mockBrokerStatsLogger);
         this.poller.setQueueRegistry(this.mockQueueRegistry);
         this.poller.setTopicRegistry(this.mockTopicRegistry);
@@ -539,8 +542,8 @@ public class ActiveMQBrokerPollerTest {
             }
         };
 
-        Mockito.when(this.mockJmxPollerFactory.createPoller(Mockito.anyList(), Mockito.any(BrokerStatsPackage.class)))
-                .thenAnswer(createNewPollerAnswer);
+        Mockito.when(this.mockJmxPollerFactory.createPoller(Mockito.anyList(), Mockito.any(BrokerStatsPackage.class),
+                Mockito.same(this.mockScheduler))).thenAnswer(createNewPollerAnswer);
     }
 
     protected DestinationRegistryListener startPollerAndGetQueueRegistryListener() throws Exception {

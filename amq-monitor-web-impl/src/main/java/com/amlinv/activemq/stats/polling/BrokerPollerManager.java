@@ -14,17 +14,21 @@
  * limitations under the License.
  */
 
-package com.amlinv.activemq.persistence;
+package com.amlinv.activemq.stats.polling;
 
-import com.amlinv.activemq.topo.registry.BrokerRegistry;
+import com.amlinv.activemq.monitor.activemq.ActiveMQBrokerPollerListener;
+import com.amlinv.activemq.topo.jmxutil.polling.InvalidJmxLocationException;
 import com.amlinv.activemq.topo.registry.DestinationRegistry;
 
-import java.io.IOException;
-
 /**
- * Created by art on 5/16/15.
+ * Created by art on 9/8/15.
  */
-public interface ApplicationPersistenceAdapter {
-    void load() throws IOException;
-    void save() throws IOException;
+public interface BrokerPollerManager {
+    void startBrokerPoller(String brokerName, String location, ActiveMQBrokerPollerListener listener,
+                           DestinationRegistry queueRegistry, DestinationRegistry topicRegistry)
+            throws InvalidJmxLocationException;
+
+    void stopBrokerPoller(String brokerName, String location);
+
+    void shutdownAllBrokerPollers();
 }

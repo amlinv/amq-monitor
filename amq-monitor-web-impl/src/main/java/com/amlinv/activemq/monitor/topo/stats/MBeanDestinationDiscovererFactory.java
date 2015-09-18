@@ -14,16 +14,16 @@
  * limitations under the License.
  */
 
-package com.amlinv.activemq.monitor.activemq;
+package com.amlinv.activemq.monitor.topo.stats;
 
-import com.amlinv.activemq.monitor.model.BrokerStatsPackage;
-import com.amlinv.javasched.Scheduler;
-
-import java.util.List;
+import com.amlinv.activemq.topo.discovery.MBeanDestinationDiscoverer;
+import com.amlinv.activemq.topo.jmxutil.polling.InvalidJmxLocationException;
+import com.amlinv.activemq.topo.registry.DestinationRegistry;
 
 /**
- * Created by art on 9/2/15.
+ * Created by art on 9/14/15.
  */
-public interface BrokerStatsJmxAttributePollerFactory {
-    BrokerStatsJmxAttributePoller createPoller(List<Object> polledObjects, BrokerStatsPackage resultStorage, Scheduler scheduler);
+public interface MBeanDestinationDiscovererFactory {
+    MBeanDestinationDiscoverer createDiscoverer(String destinationType, String brokerName, String location,
+                                                DestinationRegistry destinationRegistry) throws InvalidJmxLocationException;
 }

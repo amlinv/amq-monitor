@@ -21,6 +21,8 @@ import com.amlinv.activemq.monitor.model.BrokerStatsPackage;
 import java.util.Map;
 
 /**
+ * Listener of events on the ActiveMQBrokerPoller.
+ *
  * Created by art on 4/11/15.
  */
 public interface ActiveMQBrokerPollerListener {

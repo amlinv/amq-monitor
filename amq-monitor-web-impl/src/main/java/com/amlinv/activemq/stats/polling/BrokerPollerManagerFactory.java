@@ -14,16 +14,13 @@
  * limitations under the License.
  */
 
-package com.amlinv.activemq.monitor.activemq;
-
-import com.amlinv.activemq.monitor.model.BrokerStatsPackage;
-import com.amlinv.javasched.Scheduler;
-
-import java.util.List;
+package com.amlinv.activemq.stats.polling;
 
 /**
- * Created by art on 9/2/15.
+ * Factory for creation of broker poller managers.
+ *
+ * Created by art on 9/10/15.
  */
-public interface BrokerStatsJmxAttributePollerFactory {
-    BrokerStatsJmxAttributePoller createPoller(List<Object> polledObjects, BrokerStatsPackage resultStorage, Scheduler scheduler);
+public interface BrokerPollerManagerFactory {
+    BrokerPollerManager createBrokerPollerManager();
 }
